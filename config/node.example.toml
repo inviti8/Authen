@@ -1,0 +1,126 @@
+# PintheonV2 — node configuration (sample)
+#
+# Copy to config/node.toml and fill in. node.toml IS COMMITTED — everything in this
+# file is public. Secrets live in environment variables; see .env.example.
+#
+# Loaded with tomllib (stdlib in 3.11+). No dependency.
+
+[node]
+name         = "Pintheon Flagship"
+# Public HTTPS origin. A gate item for the competition — no localhost, no self-signed.
+# This is also the origin the reader PWA installs from (service workers need a real
+# origin; /ipfs/<cid>/ path-based gateway URLs scope badly).
+public_url   = "https://pintheon.example.art"
+# Active network profile: "mainnet" | "testnet". Prove the flow on testnet first.
+network      = "testnet"
+
+
+[treasury]
+# The payTo address. PUBLIC — it is published in the Bazaar and is the leaderboard's
+# aggregation unit.
+#
+# PERMANENT. Once registered with the competition this address cannot change:
+# changing it splits your volume history into two entries, neither of which ranks.
+# Never a placeholder. Committed here deliberately, so an accidental change shows up
+# in a diff.
+#
+# The private key for this address NEVER touches the server. The x402 `exact` scheme
+# only needs payTo as the asset receiver (`arcv`) — the buyer signs, the facilitator
+# submits. Keep the mnemonic in a wallet, offline, backed up twice.
+#
+# MUST be opted into the USDC ASA before going live, or settlement fails at the
+# facilitator's simulate step. Verify on-chain; do not assume.
+mainnet = ""
+testnet = ""
+
+
+[identity]
+# Node identity keypair — one seed derives Algorand + Stellar + X25519 (see
+# IMPLEMENTATION_PLAN.md §4.2). This key is HOT: it lives on the node and signs
+# macaroons / does ECDH for per-buyer sealing.
+#
+# Deliberately SEPARATE from [treasury]. Different jobs, different blast radius: a
+# compromised node must not cost the competition revenue, and payTo cannot be rotated
+# without splitting the leaderboard entry.
+#
+# THE SEED IS NOT CONFIGURED. The node generates it on first boot and persists it in
+# the encrypted DB, the same way V1 self-generates master_key into pintheon.ini
+# (pintheonMachine/__init__.py:91-96). V1 received its seed from Metavinci via a
+# launch macaroon; V2 drops that dependency (BUILD_PLAN.md §5 decision 1). A fresh
+# node needs no provisioning step.
+#
+# The addresses below are PUBLIC and recorded after first boot, so startup can assert
+# the derivation still matches and catch a silently regenerated identity — the failure
+# mode when a Docker state volume is not mounted.
+mainnet_address = ""
+testnet_address = ""
+
+
+[facilitator]
+url = "https://facilitator.goplausible.xyz"
+# The facilitator's own OpenAPI lives at /docs/openapi.json — NOT /openapi.json.
+
+
+# ---------------------------------------------------------------------------
+# Network profiles
+#
+# Note the identifier asymmetry, it is a real trap:
+#   /data/*                    endpoints take `slug`   (algorand-mainnet)
+#   /discovery/resources       takes `caip2`; the slug silently returns total: 0
+# ---------------------------------------------------------------------------
+
+[networks.mainnet]
+caip2         = "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="
+slug          = "algorand-mainnet"
+usdc_asa      = "31566704"          # string, not int — x402 `asset` is an ASA id as string
+usdc_decimals = 6
+algod_url     = "https://mainnet-api.algonode.cloud"
+# Expected facilitator fee payer, pinned for verification only. GoPlausible owns this
+# address and may rotate it. At runtime prefer whatever /supported reports
+# (payment_middleware(sync_facilitator_on_start=True) already fetches it); treat a
+# mismatch with this value as a warning, not as truth.
+fee_payer     = "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA"
+
+[networks.testnet]
+caip2         = "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
+slug          = "algorand-testnet"
+usdc_asa      = "10458941"
+usdc_decimals = 6
+algod_url     = "https://testnet-api.algonode.cloud"
+fee_payer     = "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA"
+
+
+[x402]
+version             = 2
+scheme              = "exact"
+# Competition tag. Goes into PaymentOption.extra as `tag` — verified against the live
+# Bazaar, 850 of 882 tagged resources put it at accepts[].extra.tag. Registration gate
+# item: get the location wrong and the entry is untagged.
+tag                 = "x402-global-challenge"
+# Generous — the per-buyer render window lives inside this once Phase 2 lands.
+max_timeout_seconds = 120
+
+
+[pricing]
+# Unit of sale is the ISSUE, not the page. One axfer, one settlement, one bespoke PWA.
+# See IMPLEMENTATION_PLAN.md §2.
+#
+# Stored in micro-units (6 decimals) because that is the wire format — `amount` is a
+# string of microunits. 3000000 = $3.00.
+issue_micro_usdc = "3000000"
+
+
+[content]
+titles_dir   = "./content/titles"
+# Pages served from disk in Phase 1. IPFS/Kubo is Phase 2 — keep it off the Phase 1
+# critical path.
+previews_dir = "./content/previews"
+
+
+[routes]
+# Paid. The core flow — this is what judged criterion 2 measures.
+issue    = "/api/v1/issue/<title>"
+# Free. Scrambled page — markets the work, poisons scrapers, defines the paywall.
+preview  = "/api/v1/preview/<title>/<n>"
+# Free. Catalogue, so agents can discover what is purchasable.
+titles   = "/api/v1/titles"

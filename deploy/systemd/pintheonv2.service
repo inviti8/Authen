@@ -1,0 +1,45 @@
+# PintheonV2 flagship node.
+#
+#   cp deploy/systemd/pintheonv2.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now pintheonv2
+#
+# Uptime must survive to 2026-10-08 (shortlist window). Restart is unconditional.
+
+[Unit]
+Description=PintheonV2 x402 node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=pintheon
+Group=pintheon
+WorkingDirectory=/opt/pintheonv2
+
+# Node state: pintheon.ini and the encrypted DB resolve under here. Must be durable
+# and backed up — losing pintheon.ini makes the database permanently unreadable.
+Environment=PINTHEON_DATA_DIR=/var/lib/pintheonv2
+Environment=PINTHEON_NETWORK=mainnet
+EnvironmentFile=-/etc/pintheonv2/env
+
+ExecStart=/opt/pintheonv2/.venv/bin/gunicorn \
+    --config /opt/pintheonv2/deploy/gunicorn.conf.py \
+    wsgi:app
+
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=20
+
+Restart=always
+RestartSec=3
+
+# Hardening. StateDirectory gives us /var/lib/pintheonv2 owned by the service user.
+StateDirectory=pintheonv2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pintheonv2
+
+[Install]
+WantedBy=multi-user.target

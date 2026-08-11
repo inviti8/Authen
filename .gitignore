@@ -1,0 +1,37 @@
+# Secrets
+.env
+*.mnemonic
+*.seed
+
+# Local config overrides. config/node.toml IS committed — the payTo address is public
+# and version-controlling it guards against accidental change (IMPLEMENTATION_PLAN.md §8).
+config/node.local.toml
+
+# Encrypted DB + node state (ported from V1 — lives under PINTHEON_DATA_DIR)
+enc_db.json
+pintheon.ini
+data/
+node_state/
+
+# Content — real comics are not redistributable; stage them locally.
+content/titles/
+content/previews/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Reader PWA build
+reader/node_modules/
+reader/dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
