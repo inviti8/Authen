@@ -24,6 +24,7 @@ from x402.http.constants import (
     X_PAYMENT_RESPONSE_HEADER,
 )
 from x402.http.middleware.flask import payment_middleware
+from x402.http.paywall import AvmPaywallHandler, PaywallBuilder
 
 from ..config import NodeConfig, load_config
 from ..content.library import Library, UnknownTitle
@@ -127,6 +128,30 @@ def create_app(cfg: NodeConfig | None = None) -> Flask:
     # rather than a placeholder. Falls back only when the library is empty.
     slug_example = library.all()[0].slug if len(library) else "example-title"
     server = build_server(cfg)
-    payment_middleware(app, routes_for(cfg, slug_example), server)
+
+    # The paywall MUST be configured explicitly.
+    #
+    # With no provider registered the SDK serves its EVM paywall — a wagmi/ethers
+    # React bundle that tries to parse our `algorand:<genesis>` network id as an EVM
+    # chain id, throws `Unsupported chain ID: NaN`, and renders a blank white page.
+    # It also phones home to cca-lite.coinbase.com. Nothing in the response looks
+    # wrong: status 402, correct headers, 1.9MB of HTML.
+    #
+    # `AvmPaywallHandler` selects the AVM bundle, which speaks Pera/Defly. And
+    # `testnet` defaults to True in this SDK regardless of the network, so it has to
+    # be derived from config or a mainnet node advertises itself as testnet.
+    paywall = (
+        PaywallBuilder()
+        .with_network(AvmPaywallHandler())
+        .with_config(
+            app_name=cfg.node_name,
+            testnet=cfg.network.name != "mainnet",
+        )
+        .build()
+    )
+
+    payment_middleware(
+        app, routes_for(cfg, slug_example), server, paywall_provider=paywall
+    )
 
     return app
