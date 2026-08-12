@@ -52,7 +52,7 @@ def payment_extra(cfg: NodeConfig) -> dict[str, Any]:
     }
 
 
-def notarize_payment_option(cfg: NodeConfig) -> dict[str, Any]:
+def payment_option(cfg: NodeConfig, amount: str) -> dict[str, Any]:
     """One `axfer`, one settlement, one attestation.
 
     payTo is static and must stay static: the leaderboard aggregates by payTo, so a
@@ -64,7 +64,7 @@ def notarize_payment_option(cfg: NodeConfig) -> dict[str, Any]:
         "network": cfg.network.caip2,
         "pay_to": cfg.pay_to,
         "price": {
-            "amount": cfg.price_micro_usdc,
+            "amount": amount,
             "asset": cfg.network.usdc_asa,
             "extra": payment_extra(cfg),
         },
@@ -82,7 +82,7 @@ def notarize_route_config(cfg: NodeConfig) -> dict[str, Any]:
     every one we ever issued.
     """
     return {
-        "accepts": notarize_payment_option(cfg),
+        "accepts": payment_option(cfg, cfg.price_micro_usdc),
         "description": (
             "Notarize any bytes. POST the content and receive a signed, timestamped "
             "attestation that this node observed data with that SHA-256 digest at "
@@ -142,7 +142,52 @@ def to_x402_pattern(flask_rule: str) -> str:
     return re.sub(r"<(?:[^:<>]+:)?([^<>]+)>", r"[\1]", flask_rule)
 
 
+def c2pa_route_config(cfg: NodeConfig) -> dict[str, Any]:
+    """Route config for the paid C2PA signing endpoint."""
+    return {
+        "accepts": payment_option(cfg, cfg.c2pa_micro_usdc),
+        "description": (
+            "Embed C2PA Content Credentials into an image. POST the image bytes with "
+            "an image/* Content-Type and receive the same image with a signed C2PA "
+            "manifest embedded, plus an Authen attestation carried inside the "
+            "manifest and in the X-Authen-Attestation header. Signed by a short-lived "
+            "leaf under this node's app CA; the CA fingerprint is returned in "
+            "X-Authen-CA-Fingerprint. Reading a manifest back is free at "
+            "POST /api/v1/c2pa/verify. NOTE: this node's CA is not on the C2PA "
+            "conformance trust list, so conformant validators will report the "
+            "signature as cryptographically valid but the signer as untrusted."
+        ),
+        "mime_type": "image/jpeg",
+        "extensions": declare_discovery_extension(
+            input={"body": "<raw image bytes; Content-Type must be image/*>"},
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "string",
+                        "description": (
+                            "Raw image bytes. Supported: jpeg, png, webp, tiff, "
+                            "avif, heic. Max 32 MiB."
+                        ),
+                    }
+                },
+                "required": ["body"],
+            },
+            output=OutputConfig(
+                example={
+                    "body": "<the same image with a C2PA manifest embedded>",
+                    "X-Authen-Attestation": "<b64url-sig>.<b64url-payload>",
+                },
+            ),
+        ),
+    }
+
+
 def routes_for(cfg: NodeConfig) -> dict[str, Any]:
     """Route table keyed the way the middleware expects: "<METHOD> <path>"."""
-    pattern = to_x402_pattern(cfg.raw["routes"]["notarize"])
-    return {f"POST {pattern}": notarize_route_config(cfg)}
+    notarize = to_x402_pattern(cfg.raw["routes"]["notarize"])
+    c2pa = to_x402_pattern(cfg.raw["routes"]["c2pa_sign"])
+    return {
+        f"POST {notarize}": notarize_route_config(cfg),
+        f"POST {c2pa}": c2pa_route_config(cfg),
+    }

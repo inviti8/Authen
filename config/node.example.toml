@@ -112,13 +112,19 @@ max_timeout_seconds = 120
 # price at $0.01–$0.04 and none of them sign or publish a verifiable key, so this
 # sits just above them deliberately.
 notarize_micro_usdc = "50000"
+# C2PA signing costs more: it issues a certificate, embeds and signs a manifest, and
+# returns the whole re-encoded image. $0.15 is above everything on the rail today,
+# which is deliberate - nothing else on it can do this.
+c2pa_micro_usdc     = "150000"
 
 
 [routes]
 # Paid. The core flow — there is no unpaid path to an attestation, which is what
 # judged criterion 2 measures.
-notarize = "/api/v1/notarize"
+notarize  = "/api/v1/notarize"
+# Paid. Embeds C2PA Content Credentials into an image.
+c2pa_sign = "/api/v1/c2pa/sign"
 # Free. An attestation nobody can check is worth nothing, so checking costs nothing.
-verify   = "/api/v1/verify"
+verify    = "/api/v1/verify"
 # Free. The signing key, in every encoding it answers to.
-identity = "/api/v1/identity"
+identity  = "/api/v1/identity"

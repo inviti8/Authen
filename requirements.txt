@@ -13,3 +13,13 @@ gunicorn==23.0.0
 # Ed25519 signing for attestations, and X.509 for the C2PA app-CA in Phase 2.
 # The whole product rests on this one being correct.
 cryptography>=42,<47
+
+# C2PA Content Credentials. Official CAI bindings over c2pa-rs. Needs Python >=3.10;
+# we already require 3.11+ for tomllib.
+#
+# PIN DELIBERATELY: the certificate profile c2pa-rs accepts is undocumented and was
+# determined empirically (see authen/c2pa_sign.py). Every rejection - wrong EKU,
+# missing SubjectKeyIdentifier - surfaces as the same message, "the certificate is
+# invalid". tests/test_c2pa.py pins the working shape; if a bump breaks it, that is
+# where it shows.
+c2pa-python==0.37.6

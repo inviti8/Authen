@@ -108,13 +108,31 @@ def load_or_create(data_dir: Path) -> NodeIdentity:
             format=serialization.PrivateFormat.Raw,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        # Write 0600 before any content lands, so the seed is never briefly world
-        # readable. os.open with the mode set at creation, not a later chmod.
-        fd = os.open(seed_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        # Write to a temp file, fsync, then atomically rename.
+        #
+        # Writing straight to the destination creates a zero-byte file before the
+        # content lands. A crash in that window leaves a truncated seed, and the
+        # length check above then refuses to start FOREVER — the node cannot
+        # regenerate (the file exists) and cannot proceed (it is malformed), so it
+        # needs manual deletion. Rename is atomic, so the destination either does
+        # not exist or holds all 32 bytes.
+        #
+        # Mode is set at creation rather than by a later chmod, so the seed is
+        # never briefly world readable.
+        # O_BINARY is REQUIRED on Windows and absent on POSIX. Without it os.open
+        # uses text mode, which expands every 0x0A in the seed to 0x0D 0x0A — the
+        # file comes back 33+ bytes and the node refuses to start. A random 32-byte
+        # seed contains at least one 0x0A about 12% of the time, so it presents as
+        # an intermittent failure on roughly one node in eight.
+        binary = getattr(os, "O_BINARY", 0)
+        tmp = seed_file.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | binary, 0o600)
         try:
             os.write(fd, seed)
+            os.fsync(fd)
         finally:
             os.close(fd)
+        os.replace(tmp, seed_file)
 
     public_bytes = private.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,

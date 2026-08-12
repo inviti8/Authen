@@ -137,3 +137,44 @@ def test_identity_mismatch_refuses_to_start(ident):
     assert_identity(ident, ident.public_hex)     # matching: allowed
     with pytest.raises(RuntimeError, match="does not match"):
         assert_identity(ident, "00" * 32)
+
+
+def test_truncated_seed_refuses_to_start(tmp_path):
+    """A malformed seed must fail loudly, never be silently replaced.
+
+    Regenerating here would mint a new identity and invalidate every attestation
+    already issued — the exact failure assert_identity exists to catch.
+    """
+    load_or_create(tmp_path)
+    (tmp_path / "node_seed.bin").write_bytes(b"\x00" * 8)
+    with pytest.raises(RuntimeError, match="expected 32"):
+        load_or_create(tmp_path)
+
+
+def test_seed_write_leaves_no_temp_file(tmp_path):
+    """The atomic write must clean up after itself."""
+    load_or_create(tmp_path)
+    assert (tmp_path / "node_seed.bin").exists()
+    assert not list(tmp_path.glob("*.tmp")), "temp file left behind"
+
+
+def test_seed_survives_newline_bytes(tmp_path):
+    """Regression: os.open without O_BINARY corrupts seeds on Windows.
+
+    Text mode expands 0x0A to 0x0D 0x0A, so the seed reads back 33+ bytes and the
+    node refuses to start. ~12% of random 32-byte seeds contain a 0x0A, which made
+    this look like flaky tests rather than a platform bug.
+    """
+    import os
+    from unittest.mock import patch
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    # A seed guaranteed to contain newline and carriage-return bytes.
+    hostile = bytes([0x0A, 0x0D, 0x1A, 0x0A] + [0x41] * 28)
+    key = Ed25519PrivateKey.from_private_bytes(hostile)
+    with patch("authen.keys.Ed25519PrivateKey.generate", return_value=key):
+        created = load_or_create(tmp_path)
+
+    assert (tmp_path / "node_seed.bin").stat().st_size == 32
+    assert load_or_create(tmp_path).public_hex == created.public_hex

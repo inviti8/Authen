@@ -4,7 +4,9 @@ Three surfaces:
 
     GET  /health                free   liveness
     POST /api/v1/notarize       PAID   bytes -> signed attestation
+    POST /api/v1/c2pa/sign      PAID   image -> C2PA Content Credentials embedded
     POST /api/v1/verify         free   attestation -> valid?  (drives discovery)
+    POST /api/v1/c2pa/verify    free   image -> manifest + validation state
     GET  /api/v1/identity       free   this node's signing key + addresses
 
 Verification is deliberately free. An attestation nobody can check is worth
@@ -24,12 +26,16 @@ from x402.http.paywall import AvmPaywallHandler, PaywallBuilder
 
 from ..config import NodeConfig, load_config
 from ..keys import assert_identity, load_or_create
+from ..c2pa_sign import SUPPORTED_FORMATS, build_app_ca, read_manifest, sign_image
 from ..notary import build_attestation, sha256_hex, verify_attestation
 from ..x402.server import build_server, routes_for
 
 # Browser clients cannot read a response header unless it is explicitly exposed.
 # v2 emits PAYMENT-RESPONSE; X-PAYMENT-RESPONSE is the v1 alias older clients want.
-_EXPOSE_HEADERS = f"{PAYMENT_RESPONSE_HEADER}, {X_PAYMENT_RESPONSE_HEADER}"
+_EXPOSE_HEADERS = (
+    f"{PAYMENT_RESPONSE_HEADER}, {X_PAYMENT_RESPONSE_HEADER}, "
+    "X-Authen-Attestation, X-Authen-CA-Fingerprint"
+)
 
 # A notarization request is a hash operation, not a storage service. Cap the body
 # so one caller cannot pin a worker on a multi-gigabyte upload inside the payment
@@ -43,6 +49,11 @@ def create_app(cfg: NodeConfig | None = None) -> Flask:
 
     identity = load_or_create(cfg.paths.data_dir)
     assert_identity(identity, cfg.identity_pubkey)
+
+    # Built once at startup, not per request: the CA is deterministic in everything
+    # but its serial number and validity window, and regenerating it per call would
+    # change the fingerprint a trust registry recorded.
+    app_ca = build_app_ca(identity, app_name=cfg.node_name)
 
     app = Flask(__name__)
     app.config["AUTHEN"] = cfg
@@ -78,6 +89,26 @@ def create_app(cfg: NodeConfig | None = None) -> Flask:
                 "algorithm": "ed25519",
             }
         )
+
+    @app.post("/api/v1/c2pa/verify")
+    def c2pa_verify():
+        """Free. Read an embedded C2PA manifest and report its validation state."""
+        data = request.get_data(cache=False)
+        if not data:
+            return jsonify({"error": "empty body - send the image"}), 400
+        media_type = (request.content_type or "").split(";")[0].strip()
+        if media_type not in SUPPORTED_FORMATS:
+            return jsonify(
+                {
+                    "error": f"unsupported Content-Type {media_type!r}",
+                    "supported": sorted(SUPPORTED_FORMATS),
+                }
+            ), 415
+        try:
+            out = read_manifest(data, media_type)
+        except Exception as exc:
+            return jsonify({"embedded": False, "error": str(exc)[:200]}), 400
+        return jsonify(out)
 
     @app.post("/api/v1/verify")
     def verify() -> Response:
@@ -129,6 +160,51 @@ def create_app(cfg: NodeConfig | None = None) -> Flask:
                 **att.to_dict(),
             }
         )
+
+    @app.post("/api/v1/c2pa/sign")
+    def c2pa_sign():
+        """Embed signed C2PA Content Credentials into an image.
+
+        Reaching this handler means payment verified and will settle before any of
+        this response is released.
+        """
+        data = request.get_data(cache=False)
+        if not data:
+            return jsonify({"error": "empty body - send the image bytes"}), 400
+
+        media_type = (request.content_type or "").split(";")[0].strip()
+        if media_type not in SUPPORTED_FORMATS:
+            return jsonify(
+                {
+                    "error": f"unsupported Content-Type {media_type!r}",
+                    "supported": sorted(SUPPORTED_FORMATS),
+                }
+            ), 415
+
+        att = build_attestation(
+            identity,
+            digest_hex=sha256_hex(data),
+            size=len(data),
+            media_type=media_type,
+        )
+        try:
+            signed, chain = sign_image(
+                identity, app_ca, data, media_type,
+                claim_generator=cfg.node_name,
+                attestation=att.to_dict(),
+            )
+        except Exception as exc:
+            return jsonify({"error": f"signing failed: {str(exc)[:200]}"}), 400
+
+        # The image is the payload; the attestation and CA fingerprint ride in
+        # headers so a caller can check them without parsing the manifest.
+        resp = Response(signed, mimetype=media_type)
+        resp.headers["X-Authen-Attestation"] = att.wire
+        resp.headers["X-Authen-CA-Fingerprint"] = chain.ca_fingerprint
+        resp.headers["Content-Disposition"] = "attachment; filename=signed" + (
+            SUPPORTED_FORMATS[media_type]
+        )
+        return resp
 
     @app.after_request
     def expose_payment_headers(resp: Response) -> Response:
