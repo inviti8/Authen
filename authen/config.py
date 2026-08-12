@@ -1,9 +1,12 @@
-"""Configuration resolution for PintheonV2.
+"""Configuration resolution for Authen.
 
-Data-directory resolution is ported from Pintheon V1 (`pintheon/config.py:43`) and
-keeps V1's `PINTHEON_DATA_DIR` contract, so an existing node's layout still resolves.
+Data-directory resolution is ported from Pintheon V1 (`pintheon/config.py:43`) —
+same precedence order, but the env prefix is `AUTHEN_`, not V1's `PINTHEON_`. That
+is a deliberate break: Authen is a different product and there are no existing
+deployments to stay compatible with. If a node ever has to read a V1 layout, add an
+explicit fallback rather than quietly reusing the old name.
 
-Two deliberate departures from V1, both from IMPLEMENTATION_PLAN.md §4.2:
+Two further departures from V1, both from IMPLEMENTATION_PLAN.md §4.2:
 
   1. The DB directory and the DB file no longer share a name. V1 had `config.DB_PATH`
      (a directory) shadowed 27 lines later by `pintheon.DB_PATH` (a file).
@@ -23,13 +26,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-DEBUG = os.getenv("PINTHEON_DEBUG", "false").lower() == "true"
+DEBUG = os.getenv("AUTHEN_DEBUG", "false").lower() == "true"
 IN_CONTAINER = os.path.exists("/.dockerenv") or bool(
     os.environ.get("APPTAINER_CONTAINER")
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CONTAINER_DATA_DIR = "/home/pintheon/data"
+CONTAINER_DATA_DIR = "/home/authen/data"
 
 
 # --------------------------------------------------------------------------
@@ -42,19 +45,19 @@ def resolve_data_dir() -> Path:
 
     Same precedence and same env var as V1, so existing deployments keep their layout.
     """
-    env = os.environ.get("PINTHEON_DATA_DIR")
+    env = os.environ.get("AUTHEN_DATA_DIR")
     if env:
         return Path(env)
     if DEBUG:
-        return Path("~/.local/share/PINTHEON").expanduser()
+        return Path("~/.local/share/AUTHEN").expanduser()
     if IN_CONTAINER:
         return Path(CONTAINER_DATA_DIR)
     try:
         from platformdirs import PlatformDirs
 
-        return Path(PlatformDirs("PINTHEON").user_data_dir)
+        return Path(PlatformDirs("AUTHEN").user_data_dir)
     except ImportError:
-        return Path("~/.local/share/PINTHEON").expanduser()
+        return Path("~/.local/share/AUTHEN").expanduser()
 
 
 @dataclass(frozen=True)
@@ -63,7 +66,7 @@ class Paths:
 
     @property
     def db_dir(self) -> Path:
-        return Path(os.environ.get("PINTHEON_DB_DIR", self.data_dir / "db"))
+        return Path(os.environ.get("AUTHEN_DB_DIR", self.data_dir / "db"))
 
     @property
     def db_file(self) -> Path:
@@ -78,15 +81,15 @@ class Paths:
         the database's parent, which let the two be separated silently. Keeping it
         independent means relocating the database can never orphan its key.
         """
-        return self.data_dir / "pintheon.ini"
+        return self.data_dir / "authen.ini"
 
     @property
     def ipfs_path(self) -> Path:
-        return Path(os.environ.get("PINTHEON_IPFS_PATH", self.data_dir / "ipfs"))
+        return Path(os.environ.get("AUTHEN_IPFS_PATH", self.data_dir / "ipfs"))
 
     @property
     def content_dir(self) -> Path:
-        return Path(os.environ.get("PINTHEON_CONTENT_DIR", self.data_dir / "content"))
+        return Path(os.environ.get("AUTHEN_CONTENT_DIR", self.data_dir / "content"))
 
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.db_dir, self.content_dir):
@@ -138,16 +141,17 @@ class NodeConfig:
     tag: str
     scheme: str
     max_timeout_seconds: int
-    issue_micro_usdc: str
+    price_micro_usdc: str
+    identity_pubkey: str
 
     @property
-    def issue_price_display(self) -> str:
-        micro = int(self.issue_micro_usdc)
+    def price_display(self) -> str:
+        micro = int(self.price_micro_usdc)
         return f"${micro / 10 ** self.network.usdc_decimals:.2f}"
 
 
 def _config_path() -> Path:
-    override = os.environ.get("PINTHEON_CONFIG")
+    override = os.environ.get("AUTHEN_CONFIG")
     if override:
         return Path(override)
     local = REPO_ROOT / "config" / "node.local.toml"
@@ -167,7 +171,7 @@ def load_config(path: Path | None = None) -> NodeConfig:
         raw = tomllib.load(fh)
 
     # Env wins, so one image can serve both networks without a config edit.
-    net_name = os.environ.get("PINTHEON_NETWORK") or raw["node"]["network"]
+    net_name = os.environ.get("AUTHEN_NETWORK") or raw["node"]["network"]
     if net_name not in raw.get("networks", {}):
         raise ValueError(
             f"Unknown network {net_name!r}. Known: {sorted(raw.get('networks', {}))}"
@@ -203,5 +207,6 @@ def load_config(path: Path | None = None) -> NodeConfig:
         tag=x.get("tag", "x402-global-challenge"),
         scheme=x.get("scheme", "exact"),
         max_timeout_seconds=int(x.get("max_timeout_seconds", 120)),
-        issue_micro_usdc=str(raw["pricing"]["issue_micro_usdc"]),
+        price_micro_usdc=str(raw["pricing"]["notarize_micro_usdc"]),
+        identity_pubkey=(raw.get("identity", {}).get("public_key") or "").strip(),
     )

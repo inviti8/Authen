@@ -1,5 +1,15 @@
 # PintheonV2 — Build Plan
 
+> **SUPERSEDED — 2026-08-12.** This document plans *Pintheon*, a per-issue comics
+> node. That product was dropped; the repo is now **Authen** (paid notarization and
+> content provenance). See `CLAUDE.md` for why, and `shelved/` for the comics code.
+>
+> Still accurate and worth reading: everything about the x402 protocol, the
+> facilitator, the Bazaar, header names, the registration gate and the competition
+> timeline. Ignore anything about issues, pages, previews, PWA readers or
+> aiposematic.
+
+
 **Repo:** `git@github.com:inviti8/PintheonV2.git` → `D:/repos/PintheonV2`
 **Status:** empty repo, no commits. This document is the brief.
 **Author of brief:** design session 2026-08-11. All facts below were verified

@@ -1,48 +1,21 @@
-"""Test fixtures — a self-contained node with a tiny synthetic library."""
+"""Test fixtures — a self-contained Authen node."""
 
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-TREASURY = "NJO3MQADL3UO236P75NAV4NCVFNA2SVVYH6BVUO5MFMIHBZVXNAQNNNFYI"
-SLUG = "test-issue"
-PAGES = 4
-PREVIEW_PAGES = 2
+TREASURY = "E64BQIOXKTT4BVMIFY2S5WX337FT6MLF66UPZEUPDYAKT4QIFOXXQCR24Q"
 
 
 @pytest.fixture(scope="session")
 def node_dir(tmp_path_factory) -> Path:
-    """A data directory with a small library: 4 pages, 2 of them previewable."""
-    d = tmp_path_factory.mktemp("nodedata")
-    pages = d / "content" / "titles" / SLUG / "pages"
-    previews = d / "content" / "previews" / SLUG
-    pages.mkdir(parents=True)
-    previews.mkdir(parents=True)
-
-    for n in range(1, PAGES + 1):
-        Image.new("RGB", (40, 60), (n * 40 % 255, 120, 200)).save(pages / f"{n:03d}.png")
-        if n <= PREVIEW_PAGES:
-            Image.new("RGB", (40, 60), (10, 10, 10)).save(previews / f"{n:03d}.png")
-
-    (d / "content" / "titles" / SLUG / "meta.json").write_text(
-        json.dumps(
-            {
-                "title": "Test Issue",
-                "creator": "fixture",
-                "blurb": "synthetic",
-                "preview_pages": PREVIEW_PAGES,
-            }
-        ),
-        encoding="utf-8",
-    )
-    return d
+    """An empty data directory. The node generates its own identity into it."""
+    return tmp_path_factory.mktemp("nodedata")
 
 
 @pytest.fixture(scope="session")
@@ -60,10 +33,10 @@ def config_file(tmp_path_factory) -> Path:
 
 @pytest.fixture(scope="session")
 def cfg(node_dir, config_file, monkeypatch_session):
-    from pintheonv2.config import load_config
+    from authen.config import load_config
 
-    monkeypatch_session.setenv("PINTHEON_DATA_DIR", str(node_dir))
-    monkeypatch_session.setenv("PINTHEON_NETWORK", "testnet")
+    monkeypatch_session.setenv("AUTHEN_DATA_DIR", str(node_dir))
+    monkeypatch_session.setenv("AUTHEN_NETWORK", "testnet")
     return load_config(config_file)
 
 
@@ -81,9 +54,16 @@ def client(cfg):
     """Test client.
 
     Building the app contacts the facilitator's /supported once, via
-    server.initialize(). That is a deliberate integration point: a config that the
+    server.initialize(). That is a deliberate integration point: a config the
     facilitator rejects should fail here rather than in production.
     """
-    from pintheonv2.web.app import create_app
+    from authen.web.app import create_app
 
     return create_app(cfg).test_client()
+
+
+@pytest.fixture(scope="session")
+def identity(cfg):
+    from authen.keys import load_or_create
+
+    return load_or_create(cfg.paths.data_dir)

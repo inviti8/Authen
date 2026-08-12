@@ -1,4 +1,4 @@
-"""gunicorn config for the PintheonV2 node."""
+"""gunicorn config for the Authen node."""
 
 bind = "127.0.0.1:8402"
 

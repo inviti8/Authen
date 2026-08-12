@@ -1,4 +1,4 @@
-# PintheonV2 — node configuration (sample)
+# Authen — node configuration (sample)
 #
 # Copy to config/node.toml and fill in. node.toml IS COMMITTED — everything in this
 # file is public. Secrets live in environment variables; see .env.example.
@@ -6,11 +6,11 @@
 # Loaded with tomllib (stdlib in 3.11+). No dependency.
 
 [node]
-name         = "Pintheon Flagship"
+name         = "Authen"
 # Public HTTPS origin. A gate item for the competition — no localhost, no self-signed.
 # This is also the origin the reader PWA installs from (service workers need a real
 # origin; /ipfs/<cid>/ path-based gateway URLs scope badly).
-public_url   = "https://pintheon.example.art"
+public_url   = "https://authen.example.com"
 # Active network profile: "mainnet" | "testnet". Prove the flow on testnet first.
 network      = "testnet"
 
@@ -52,8 +52,11 @@ testnet = ""
 # The addresses below are PUBLIC and recorded after first boot, so startup can assert
 # the derivation still matches and catch a silently regenerated identity — the failure
 # mode when a Docker state volume is not mounted.
-mainnet_address = ""
-testnet_address = ""
+# Recorded AFTER first boot: `curl https://<host>/api/v1/identity`. Startup asserts
+# the live key still matches this, which catches the failure mode where a state
+# volume did not mount and the node silently generated a new identity — every
+# attestation it then signs is unverifiable against the key you published.
+public_key = ""
 
 
 [facilitator]
@@ -102,25 +105,20 @@ max_timeout_seconds = 120
 
 
 [pricing]
-# Unit of sale is the ISSUE, not the page. One axfer, one settlement, one bespoke PWA.
-# See IMPLEMENTATION_PLAN.md §2.
+# One attestation, one axfer, one settlement.
 #
-# Stored in micro-units (6 decimals) because that is the wire format — `amount` is a
-# string of microunits. 3000000 = $3.00.
-issue_micro_usdc = "3000000"
-
-
-[content]
-titles_dir   = "./content/titles"
-# Pages served from disk in Phase 1. IPFS/Kubo is Phase 2 — keep it off the Phase 1
-# critical path.
-previews_dir = "./content/previews"
+# Micro-units (6 decimals) because that is the wire format — `amount` is a string of
+# microunits. 50000 = $0.05. The three live provenance resources on this facilitator
+# price at $0.01–$0.04 and none of them sign or publish a verifiable key, so this
+# sits just above them deliberately.
+notarize_micro_usdc = "50000"
 
 
 [routes]
-# Paid. The core flow — this is what judged criterion 2 measures.
-issue    = "/api/v1/issue/<title>"
-# Free. Scrambled page — markets the work, poisons scrapers, defines the paywall.
-preview  = "/api/v1/preview/<title>/<n>"
-# Free. Catalogue, so agents can discover what is purchasable.
-titles   = "/api/v1/titles"
+# Paid. The core flow — there is no unpaid path to an attestation, which is what
+# judged criterion 2 measures.
+notarize = "/api/v1/notarize"
+# Free. An attestation nobody can check is worth nothing, so checking costs nothing.
+verify   = "/api/v1/verify"
+# Free. The signing key, in every encoding it answers to.
+identity = "/api/v1/identity"

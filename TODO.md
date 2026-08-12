@@ -1,135 +1,100 @@
-# Morning TODO
+# TODO
 
-**#1 is done — testnet settlement works end to end.** The critical path for the
-**2026-09-01** deadline is now #2 (VPS + hostname) and #3 (mainnet account).
-
-Everything else is built and passing — see `IMPLEMENTATION_PLAN.md` §3 for the full
-Phase 1 checklist and the end of this file for what's already done.
+Repo pivoted from PintheonV2 to **Authen** on 2026-08-12. Rail unchanged and proven;
+what it sells changed. See `CLAUDE.md`.
 
 ---
 
-## 1. ~~Testnet settlement~~ — **DONE, and it works**  ✅
+## 1. Rename the GitHub repo  ⏱️ 1 minute — *do this before anything else*
 
-The full rail is proven end to end on Algorand testnet against the live GoPlausible
-facilitator: 402 → sign → verify → **settle on chain** → issue delivered → receipt.
-
-```
-[1/4] 402 challenge   x402Version=2 accepts=1
-[2/4] payment signed  3432 byte header
-[3/4] paid request    200 application/zip 89285 bytes
-[4/4] settled         success=True
-      txid            WQZSNW67EMG4G4SUL3AQBQIY2ZVB4KMMII5N4CHTCHNTTKSRXHHQ
-```
-
-Confirmed independently on chain (round 66235006): 3.000000 units moved buyer →
-treasury, **fee 0** — the facilitator sponsored it via `feePayer`, exactly as the
-`exact` scheme intends. Reproduce any time with `python tools/pay_once.py`.
-
-This ran against a **self-minted stand-in ASA (`769120200`)**, not real USDC, because
-the USDC faucet was rate-limited. That is not a shortcut: the `exact` scheme takes any
-ASA id, and mainnet's `31566704` differs in no other way. Swapping the asset id is a
-one-line config change.
-
-**Optional, when the faucet cooldown lifts** — resend testnet USDC here to re-run the
-same test against real Circle USDC (ASA `10458941`, both accounts already opted in):
-
-```
-NJO3MQADL3UO236P75NAV4NCVFNA2SVVYH6BVUO5MFMIHBZVXNAQNNNFYI
-```
-
-Your first send never arrived, and the chain shows why: the account had no opt-in at
-the time, so the transfer was rejected outright — there is no pending transaction to
-wait on. Both accounts are opted in now, so a resend will land. Then:
+Settings → rename `PintheonV2` → `Authen`. GitHub redirects the old URL, so nothing
+breaks, but `scripts/vps_startup.sh` already points at
+`https://github.com/inviti8/Authen.git`.
 
 ```bash
-python tools/testnet_setup.py --provision --asa 10458941
-python tools/pay_once.py     # after pointing config/node.local.toml at 10458941
+git remote set-url origin git@github.com:inviti8/Authen.git
 ```
 
-> ALGO funding is scripted now too — `tools/dispenser.py` (`--login`, `--fund`).
-> The AlgoKit dispenser API *is* programmatic; my earlier claim that it wasn't was
-> wrong. One device-code login, then a 30-day token.
->
-> Mnemonics live in `.venv/testnet_accounts.json` (gitignored).
+---
+
+## 2. Point DNS at the new hostname  ⏱️ 2 minutes + propagation
+
+| Name | Type | Value |
+|---|---|---|
+| `authen.hvym.link` | A | `104.207.89.129` |
+
+Same box as `pintheon.hvym.link`. Start this early — cert issuance waits on it.
+
+> **Why now and not later:** the Bazaar keys a resource on `base64("GET:<url>")`,
+> so the URL *is* the primary key. **No payment has been taken yet, so nothing is
+> catalogued** and this move is free. After the first settlement it costs the
+> resource's identity. Rename → repoint → *then* take the first payment.
 
 ---
 
-## 2. VPS + hostname + TLS  ⏱️ start early, it's wall-clock
+## 3. Redeploy as Authen  ⏱️ ~15 minutes
 
-DNS propagation and cert issuance can't be rushed by working harder, so kick this off
-before anything else that takes thought.
-
-- [ ] Provision a VPS (2 vCPU / 4 GB is ample)
-- [ ] Point a hostname at it — **this hostname is semi-permanent**, see the warning below
-- [ ] certbot for TLS. Public HTTPS is a gate item: no localhost, no self-signed.
-- [ ] Deploy configs are ready in `deploy/` — nginx vhost, systemd unit, gunicorn conf.
-      Replace `pintheon.example.art` throughout.
-
-> ⚠️ **Pick the hostname deliberately.** The facilitator auto-catalogs on `/verify`
-> ("Auto-catalogs resources via Bazaar extension" — its own OpenAPI). The first paid
-> request registers whatever `resourceUrl` it carries, tied to your payTo. There is no
-> quiet test from a temporary URL that doesn't leave a junk Bazaar entry.
-
----
-
-## 3. Mainnet account + USDC opt-in  ⏱️ ~15 minutes
-
-**Do not let me see the mnemonic** — it would land in the conversation transcript.
-Generate it yourself in Pera/Defly and give me only the address.
-
-- [ ] Create the account (Pera Wallet, mobile or web)
-- [ ] **Back up the 25 words offline, twice, before the account is used**
-- [ ] Fund with ~1 ALGO (covers the 0.1 minimum + 0.1 ASA slot with headroom)
-- [ ] **Opt into USDC, asset ID `31566704`** — without this every settlement fails at
-      the facilitator's simulate step, while the endpoint still looks healthy
-- [ ] Verify it, key never required:
+Paths, service name and user all changed (`/opt/authen`, `/var/lib/authen`,
+`authen.service`). Cleanest is a fresh run rather than migrating in place:
 
 ```bash
-python tools/check_optin.py --network mainnet --address <your-address>
+# on the VPS
+sudo systemctl disable --now pintheonv2
+curl -O https://raw.githubusercontent.com/inviti8/Authen/main/scripts/vps_startup.sh
+# set DOMAIN=authen.hvym.link, ADMIN_EMAIL, PAYTO_MAINNET
+sudo bash vps_startup.sh
+sudo bash /opt/authen/scripts/status.sh
 ```
 
-- [ ] Put the address in `config/node.toml` under `[treasury] mainnet`
+Then record the signing key — **this is new and it matters**:
 
-> This address is **permanent for the competition**. Changing it after registration
-> splits your volume across two leaderboard entries, neither of which ranks. It is the
-> one irreversible decision in Phase 1.
->
-> Keep it separate from the node identity key — the payTo private key never touches
-> the server (the `exact` scheme only needs payTo as asset receiver).
+```bash
+curl -s https://authen.hvym.link/api/v1/identity
+# copy publicKey into config/node.toml -> [identity] public_key
+sudo systemctl restart authen
+```
 
----
-
-## 4. Comics rights  ⏱️ a conversation
-
-- [ ] Confirm with the founder which titles can ship on a paid mainnet endpoint
-- [ ] Candidates are in `D:/repos/comics.heavymeta.art/content/titles`
-
-Real books score materially better on "use case quality" than placeholder art. The
-pipeline runs on synthetic pages meanwhile, so this blocks nothing technical — but it
-should land before launch.
+Without it, a state directory that fails to mount regenerates the identity
+silently and every attestation signed afterwards is unverifiable against the key
+you published. With it, the node refuses to start.
 
 ---
 
-## 5. Confirm the price  ⏱️ 1 minute
+## 4. Take the first mainnet payment + register  ⏱️ ~20 minutes
 
-Currently **$3.00 per issue** (`3000000` micro-USDC in `config/node.toml`).
+The whole Sep 1 gate. Everything else is already verified.
 
-Per-issue is decided; the number is yours. For calibration against today's board:
-top-20 costs $4.63 total volume (two issues), top-10 ~$46, top-5 ~$243.
+- [ ] `status.sh` clean on `authen.hvym.link`
+- [ ] One real settled payment (adapt `tools/pay_once.py`, mainnet, ~$0.05)
+- [ ] Registration form submitted
+
+---
+
+## 5. Decide: port the trust registry to Algorand?  ⏱️ a decision, then ~a week
+
+`hvym-cert-registry` is live on Stellar/Soroban. Authen pays on Algorand. Two
+chains is rules-compliant — §6 only requires the *paid endpoint* be on Algorand
+mainnet via GoPlausible — but it is a weaker story to an Algorand judging panel.
+
+Porting is reasonable: it is a KV registry with Ed25519 auth, and Algorand has
+both primitives natively (box storage, `ed25519verify_bare`). **Existing keys
+survive** — the same 32-byte Ed25519 key is already both a Stellar and an
+Algorand address, so only the SAN encoding changes.
+
+Not on the Sep 1 path: the gate needs `/notarize`, which touches no registry.
 
 ---
 
 ## Already done — nothing needed from you
 
-- Phase 1 endpoint built; paid route returns a correct 402 with every registration
-  gate item verified on the wire (tag at `accepts[].extra.tag`, ASA/amount as strings,
-  CAIP-2 network, `x402Version: 2`, Bazaar discovery extension attached)
-- Free catalogue, free scrambled previews, paywall boundary enforced
-- 22 tests passing (`python -m pytest tests/ -q`)
-- Content pipeline running on placeholder art
-- nginx / systemd / gunicorn configs written
-- Testnet provisioning, ALGO dispenser, opt-in verification scripts
-- **Full paid purchase settled on testnet** — see #1
+- Rail proven end to end on testnet against the live facilitator, twice, most
+  recently against `/api/v1/notarize` (txid `M6MU2KVFEV2XKITFVLYYSGNPIMKTJQDM65XWX5TFQH5BWGSRZ66A`)
+- Notary: Ed25519 attestations, canonical payloads, offline verification
+- Node identity self-generated on first boot, 0600, mismatch refuses to start
+- Free `/verify` and `/identity`; paid `/notarize`
+- AVM paywall wired (the SDK's EVM default renders a blank page)
+- 44 tests passing
+- Deploy artifacts, runbook and status check updated for Authen
+- Comics code parked in `shelved/`, not deleted
 
-**Blocked on #2 + #3** for mainnet cutover. Those are now the only things between us
-and a live paid endpoint.
+**Blocked on #1–#3**, which are yours, then #4 closes the deadline.

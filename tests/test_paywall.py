@@ -20,7 +20,6 @@ import re
 
 import pytest
 
-from .conftest import SLUG
 
 BROWSER = {"Accept": "text/html", "User-Agent": "Mozilla/5.0 Chrome/140"}
 
@@ -39,7 +38,7 @@ def _template_bundle(template: str) -> str:
 
 @pytest.fixture(scope="module")
 def paywall_html(client) -> str:
-    r = client.get(f"/api/v1/issue/{SLUG}", headers=BROWSER)
+    r = client.post("/api/v1/notarize", data=b"probe", headers=BROWSER)
     assert r.status_code == 402
     assert r.headers["Content-Type"].startswith("text/html")
     return r.get_data(as_text=True)
@@ -83,7 +82,7 @@ def test_testnet_flag_tracks_the_network(paywall_html, cfg):
 
 def test_agents_still_get_json_not_html(client):
     """The paywall must not displace the machine-readable challenge."""
-    r = client.get(f"/api/v1/issue/{SLUG}", headers={"Accept": "application/json"})
+    r = client.post("/api/v1/notarize", data=b"probe", headers={"Accept": "application/json"})
     assert r.status_code == 402
     assert "PAYMENT-REQUIRED" in r.headers
     assert not r.headers["Content-Type"].startswith("text/html")

@@ -1,8 +1,8 @@
-"""Buy one issue on testnet, end to end, against a live facilitator.
+"""Buy one attestation on testnet, end to end, against a live facilitator.
 
 This is the proof that the whole rail works: 402 challenge -> buyer signs an axfer ->
-facilitator verifies -> facilitator settles on chain -> node serves the issue and
-returns a receipt. Everything before this is inference; this is evidence.
+facilitator verifies -> facilitator settles on chain -> node signs the attestation
+and returns a receipt. Everything before this is inference; this is evidence.
 
     python tools/pay_once.py
 
@@ -87,26 +87,17 @@ def _decode_header(value: str) -> dict:
     return json.loads(base64.b64decode(value))
 
 
-def run(slug: str | None) -> int:
-    from pintheonv2.config import load_config
-    from pintheonv2.content.library import Library
-    from pintheonv2.web.app import create_app
+def run() -> int:
+    from authen.config import load_config
+    from authen.web.app import create_app
 
     cfg = load_config()
     if cfg.network.name != "testnet":
         raise SystemExit(
             f"Refusing to run against {cfg.network.name}. This script spends real "
-            "money on mainnet. Set PINTHEON_NETWORK=testnet."
+            "money on mainnet. Set AUTHEN_NETWORK=testnet."
         )
 
-    if slug is None:
-        titles = Library(cfg.paths.content_dir).load().all()
-        if not titles:
-            raise SystemExit(
-                f"No titles under {cfg.paths.content_dir}.\n"
-                "Run: python tools/make_placeholder_content.py"
-            )
-        slug = titles[0].slug
     accounts = load_testnet_accounts()
     buyer = accounts["buyer"]
     signer = BuyerSigner(mnemonic.to_private_key(buyer["mnemonic"]), buyer["address"])
@@ -114,19 +105,20 @@ def run(slug: str | None) -> int:
     print(f"network   {cfg.network.name}  asset {cfg.network.usdc_asa}")
     print(f"buyer     {buyer['address']}")
     print(f"payTo     {cfg.pay_to}")
-    print(f"price     {cfg.issue_price_display}  ({cfg.issue_micro_usdc} micro)")
-    print(f"issue     {slug}\n")
+    print(f"amount    {cfg.price_micro_usdc} micro-USDC ({cfg.price_display})")
+    print()
 
     srv, _t = serve_in_thread(create_app(cfg))
     try:
-        url = f"{BASE}{cfg.raw['routes']['issue'].replace('<title>', slug)}"
+        url = f"{BASE}{cfg.raw['routes']['notarize']}"
+        body = b"authen end-to-end settlement probe"
 
         # 1. Unpaid request must be challenged.
-        r = httpx.get(url, timeout=30)
+        r = httpx.post(url, content=body, timeout=30)
         if r.status_code != 402:
             raise SystemExit(
                 f"Expected 402, got {r.status_code}. The route is not protected - "
-                "the issue is being served for free."
+                "attestations are being signed for free."
             )
         challenge = _decode_header(r.headers["PAYMENT-REQUIRED"])
         print(f"[1/4] 402 challenge   x402Version={challenge['x402Version']} "
@@ -157,7 +149,7 @@ def run(slug: str | None) -> int:
         # re-challenges with a plain 402 and an unhelpful "Payment required", which
         # looks exactly like a rejected payment. The facilitator will happily report
         # isValid on the same payload while this fails.
-        r = httpx.get(url, headers={"PAYMENT-SIGNATURE": header}, timeout=90)
+        r = httpx.post(url, content=body, headers={"PAYMENT-SIGNATURE": header}, timeout=90)
         print(f"[3/4] paid request    {r.status_code} {r.headers.get('content-type')} "
               f"{len(r.content)} bytes")
         if r.status_code != 200:
@@ -173,8 +165,8 @@ def run(slug: str | None) -> int:
         raw = r.headers.get("PAYMENT-RESPONSE") or r.headers.get("X-PAYMENT-RESPONSE")
         if not raw:
             raise SystemExit(
-                "Served the issue but returned no settlement receipt. Without it a "
-                "buyer cannot prove payment."
+                "Signed the attestation but returned no settlement receipt. Without "
+                "it a buyer cannot prove payment."
             )
         receipt = _decode_header(raw)
         print(f"[4/4] settled         success={receipt.get('success')}")
@@ -190,8 +182,8 @@ def run(slug: str | None) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--slug", default=None, help="issue to buy (default: first)")
-    return run(ap.parse_args().slug)
+    ap.parse_args()
+    return run()
 
 
 if __name__ == "__main__":

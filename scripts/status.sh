@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# PintheonV2 - Node Status Check
+# Authen - Node Status Check
 #
 # Verifies the things that actually gate revenue, in the order they fail:
 # service up, TLS valid, free routes answer, paid route challenges correctly,
@@ -13,18 +13,18 @@
 # Usage:
 #   sudo bash status.sh            # verbose
 #   sudo bash status.sh --quiet    # silent on success (cron-friendly)
-#   sudo bash status.sh --domain pintheon.example.art
+#   sudo bash status.sh --domain authen.example.com
 #
 # Exit codes:
 #   0 - All checks passed
-#   1 - Warning (cert expiring soon, placeholder content)
+#   1 - Warning (cert expiring soon, identity key not recorded)
 #   2 - Failure (service down, paid route unprotected, payTo cannot receive)
 #   3 - Cannot determine (config unreadable)
 #
 
 set -uo pipefail
 
-APP_DIR="${APP_DIR:-/opt/pintheonv2}"
+APP_DIR="${APP_DIR:-/opt/authen}"
 VENV_DIR="${APP_DIR}/.venv"
 CFG="${APP_DIR}/config/node.toml"
 WARN_DAYS=14
@@ -61,7 +61,7 @@ warn() { out "  WARN  $*"; note WARN "$*"; }
 
 out ""
 out "============================================================"
-out "PintheonV2 Status - $(date)"
+out "Authen Status - $(date)"
 out "============================================================"
 
 #-----------------------------------------------------------------------------
@@ -87,7 +87,7 @@ print(cur if isinstance(cur, str) else "")
 PY
 }
 
-NETWORK="$(grep -oP '^PINTHEON_NETWORK=\K.*' /etc/pintheonv2/env 2>/dev/null || echo mainnet)"
+NETWORK="$(grep -oP '^AUTHEN_NETWORK=\K.*' /etc/authen/env 2>/dev/null || echo mainnet)"
 [[ -n "$DOMAIN" ]] || DOMAIN="$(read_cfg node.public_url | sed 's|https\?://||; s|/$||')"
 PAYTO="$(read_cfg "treasury.${NETWORK}")"
 
@@ -105,7 +105,7 @@ out "  payTo      ${PAYTO:-UNSET}"
 out ""
 out "--- Services ---"
 
-for svc in pintheonv2 nginx; do
+for svc in authen nginx; do
     if systemctl is-active --quiet "$svc"; then
         ok "${svc} active"
     else
@@ -163,42 +163,47 @@ code() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@" 2>/dev/null |
 HEALTH="$(code "${BASE}/health")"
 [[ "$HEALTH" == "200" ]] && ok "/health -> 200" || bad "/health -> ${HEALTH}"
 
-TITLES="$(curl -s --max-time 20 "${BASE}/api/v1/titles" 2>/dev/null || echo '')"
-if echo "$TITLES" | grep -q '"slug"'; then
-    N="$(echo "$TITLES" | grep -o '"slug"' | wc -l)"
-    ok "/api/v1/titles lists ${N} title(s)"
-    if echo "$TITLES" | grep -q 'placeholder-issue'; then
-        warn "catalogue is still placeholder art - stage real content before launch"
+IDENT="$(curl -s --max-time 20 "${BASE}/api/v1/identity" 2>/dev/null || echo '')"
+if echo "$IDENT" | grep -q '"publicKey"'; then
+    KEY="$(echo "$IDENT" | grep -oP '"publicKey"\s*:\s*"\K[^"]+')"
+    ok "/api/v1/identity publishes signing key ${KEY:0:16}..."
+    CFGKEY="$(read_cfg identity.public_key)"
+    if [[ -n "$CFGKEY" && "$CFGKEY" != "$KEY" ]]; then
+        bad "SIGNING KEY CHANGED. Config says ${CFGKEY:0:16}..., node serves ${KEY:0:16}..."
+        bad "  Every attestation signed since the change is unverifiable against the published key."
+    elif [[ -z "$CFGKEY" ]]; then
+        warn "identity.public_key not recorded in ${CFG} - a silently regenerated key would go unnoticed"
     fi
 else
-    bad "/api/v1/titles returned no catalogue"
+    bad "/api/v1/identity did not publish a signing key"
 fi
 
-SLUG="$(echo "$TITLES" | grep -oP '"slug"\s*:\s*"\K[^"]+' | head -1)"
-if [[ -n "$SLUG" ]]; then
-    ISSUE="$(code "${BASE}/api/v1/issue/${SLUG}")"
-    case "$ISSUE" in
-        402) ok "/api/v1/issue/${SLUG} -> 402 (paywall active)" ;;
-        200) bad "PAID ROUTE IS SERVING FOR FREE (200). Route pattern is not matching." ;;
-        *)   bad "/api/v1/issue/${SLUG} -> ${ISSUE} (expected 402)" ;;
-    esac
+# The paid route must challenge. A 200 here means attestations are free.
+NOTARIZE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20             -X POST --data-binary 'status-probe' "${BASE}/api/v1/notarize" 2>/dev/null || echo 000)"
+case "$NOTARIZE" in
+    402) ok "/api/v1/notarize -> 402 (paywall active)" ;;
+    200) bad "PAID ROUTE IS SERVING FOR FREE (200). Route pattern is not matching." ;;
+    *)   bad "/api/v1/notarize -> ${NOTARIZE} (expected 402)" ;;
+esac
 
-    # The challenge must carry the competition tag where the Bazaar reads it, or
-    # the resource is cataloged untagged and never counts.
-    CHAL="$(curl -s -D - -o /dev/null --max-time 20 "${BASE}/api/v1/issue/${SLUG}" 2>/dev/null \
-            | grep -i '^payment-required:' | cut -d' ' -f2- | tr -d '\r')"
-    if [[ -n "$CHAL" ]]; then
-        DEC="$(echo "$CHAL" | base64 -d 2>/dev/null || echo '')"
-        echo "$DEC" | grep -q '"tag"' \
-            && ok "402 challenge carries a tag in accepts[].extra" \
-            || warn "402 challenge has no extra.tag - it will be cataloged untagged"
-        echo "$DEC" | grep -q "$PAYTO" \
-            && ok "402 challenge advertises the configured payTo" \
-            || bad "402 challenge payTo does not match ${CFG}"
-    else
-        bad "402 response carried no PAYMENT-REQUIRED header"
-    fi
+# The challenge must carry the competition tag where the Bazaar reads it, or the
+# resource is cataloged untagged and never counts.
+CHAL="$(curl -s -D - -o /dev/null --max-time 20 -X POST --data-binary 'status-probe'         "${BASE}/api/v1/notarize" 2>/dev/null         | grep -i '^payment-required:' | cut -d' ' -f2- | tr -d '')"
+if [[ -n "$CHAL" ]]; then
+    DEC="$(echo "$CHAL" | base64 -d 2>/dev/null || echo '')"
+    echo "$DEC" | grep -q '"tag"'         && ok "402 challenge carries a tag in accepts[].extra"         || warn "402 challenge has no extra.tag - it will be cataloged untagged"
+    echo "$DEC" | grep -q "$PAYTO"         && ok "402 challenge advertises the configured payTo"         || bad "402 challenge payTo does not match ${CFG}"
+else
+    bad "402 response carried no PAYMENT-REQUIRED header"
 fi
+
+# Verification must stay free. If this ever costs money, nobody checks anything.
+VERIFY="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20           -X POST -H 'Content-Type: application/json' -d '{"attestation":"bad.token"}'           "${BASE}/api/v1/verify" 2>/dev/null || echo 000)"
+case "$VERIFY" in
+    400) ok "/api/v1/verify is free and rejects a bad attestation" ;;
+    402) bad "/api/v1/verify is behind the paywall - verification must be free" ;;
+    *)   warn "/api/v1/verify -> ${VERIFY} (expected 400 for a bad token)" ;;
+esac
 
 #-----------------------------------------------------------------------------
 # payTo can actually receive
@@ -230,7 +235,7 @@ if [[ ${#ISSUES[@]} -eq 0 ]]; then
     out "ALL CHECKS PASSED - node is live and sellable"
 else
     if [[ $QUIET -eq 1 ]]; then
-        err "PintheonV2 status: ${#ISSUES[@]} issue(s) on ${DOMAIN}"
+        err "Authen status: ${#ISSUES[@]} issue(s) on ${DOMAIN}"
         for i in "${ISSUES[@]}"; do err "  $i"; done
     else
         out "${#ISSUES[@]} issue(s):"

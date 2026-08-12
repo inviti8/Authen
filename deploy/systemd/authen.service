@@ -1,0 +1,45 @@
+# Authen flagship node.
+#
+#   cp deploy/systemd/authen.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now authen
+#
+# Uptime must survive to 2026-10-08 (shortlist window). Restart is unconditional.
+
+[Unit]
+Description=Authen x402 node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=authen
+Group=authen
+WorkingDirectory=/opt/authen
+
+# Node state: authen.ini and the encrypted DB resolve under here. Must be durable
+# and backed up — losing authen.ini makes the database permanently unreadable.
+Environment=AUTHEN_DATA_DIR=/var/lib/authen
+Environment=AUTHEN_NETWORK=mainnet
+EnvironmentFile=-/etc/authen/env
+
+ExecStart=/opt/authen/.venv/bin/gunicorn \
+    --config /opt/authen/deploy/gunicorn.conf.py \
+    wsgi:app
+
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=20
+
+Restart=always
+RestartSec=3
+
+# Hardening. StateDirectory gives us /var/lib/authen owned by the service user.
+StateDirectory=authen
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/authen
+
+[Install]
+WantedBy=multi-user.target

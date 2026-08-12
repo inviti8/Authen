@@ -52,12 +52,11 @@ def payment_extra(cfg: NodeConfig) -> dict[str, Any]:
     }
 
 
-def issue_payment_option(cfg: NodeConfig) -> dict[str, Any]:
-    """One `axfer`, one settlement, one issue.
+def notarize_payment_option(cfg: NodeConfig) -> dict[str, Any]:
+    """One `axfer`, one settlement, one attestation.
 
     payTo is static and must stay static: the leaderboard aggregates by payTo, so a
     DynamicPayTo would fragment the entry across addresses, none of which would rank.
-    Artist splits are a downstream sweep, not a second recipient in the group.
     See IMPLEMENTATION_PLAN.md §1.3.
     """
     return {
@@ -65,7 +64,7 @@ def issue_payment_option(cfg: NodeConfig) -> dict[str, Any]:
         "network": cfg.network.caip2,
         "pay_to": cfg.pay_to,
         "price": {
-            "amount": cfg.issue_micro_usdc,
+            "amount": cfg.price_micro_usdc,
             "asset": cfg.network.usdc_asa,
             "extra": payment_extra(cfg),
         },
@@ -74,40 +73,52 @@ def issue_payment_option(cfg: NodeConfig) -> dict[str, Any]:
     }
 
 
-def issue_route_config(cfg: NodeConfig, slug_example: str) -> dict[str, Any]:
-    """Route config for the paid issue endpoint.
+def notarize_route_config(cfg: NodeConfig) -> dict[str, Any]:
+    """Route config for the paid notarize endpoint.
 
-    The description is Bazaar listing copy — an agent deciding whether to buy reads
-    this and nothing else. Write it for that reader.
+    The description is Bazaar listing copy - an agent deciding whether to buy reads
+    this and nothing else. It states the claim narrowly on purpose: an attestation
+    that overpromises is worse than none, because the first counterexample discredits
+    every one we ever issued.
     """
     return {
-        "accepts": issue_payment_option(cfg),
+        "accepts": notarize_payment_option(cfg),
         "description": (
-            f"Buy a complete comic issue from {cfg.node_name}. One payment delivers "
-            "the full issue as a self-contained encrypted reader the buyer keeps: it "
-            "works offline and does not depend on this node staying online. Free "
-            "scrambled page previews are available without payment at "
-            "/api/v1/preview/{title}/{n}, and /api/v1/titles lists what is for sale."
+            "Notarize any bytes. POST the content and receive a signed, timestamped "
+            "attestation that this node observed data with that SHA-256 digest at "
+            "that moment. Ed25519 detached signature in "
+            "b64url(sig).b64url(payload) form, verifiable offline by anyone. "
+            "Verification is free at POST /api/v1/verify; the signing key is "
+            "published at GET /api/v1/identity. The attestation asserts observation "
+            "and time only - not authorship, ownership, or prior existence."
         ),
-        "mime_type": "application/zip",
+        "mime_type": "application/json",
         "extensions": declare_discovery_extension(
-            input={"title": slug_example},
+            input={"body": "<raw bytes of the content to notarize>"},
             input_schema={
                 "type": "object",
                 "properties": {
-                    "title": {
+                    "body": {
                         "type": "string",
                         "description": (
-                            "Title slug, as listed by GET /api/v1/titles."
+                            "Raw request body - the exact bytes to hash. Any content "
+                            "type. Max 32 MiB; send a digest instead for larger objects."
                         ),
                     }
                 },
-                "required": ["title"],
+                "required": ["body"],
             },
             output=OutputConfig(
                 example={
-                    "format": "zip",
-                    "contents": "one image per page, in reading order",
+                    "attestation": "<b64url-sig>.<b64url-payload>",
+                    "payload": {
+                        "h": "<sha256 hex>",
+                        "i": "sha256-observed-at",
+                        "k": "<ed25519 public key hex>",
+                        "s": 1024,
+                        "t": 1786000000,
+                        "v": 1,
+                    },
                 },
             ),
         ),
@@ -119,8 +130,8 @@ def to_x402_pattern(flask_rule: str) -> str:
 
     They use different syntax for path parameters and it fails silently:
 
-        Flask   /api/v1/issue/<title>       or  <int:n>
-        x402    /api/v1/issue/[title]
+        Flask   /api/v1/notarize/<id>       or  <int:n>
+        x402    /api/v1/notarize/[id]
 
     `_parse_route_pattern` (x402_http_server_base) regex-escapes the path and only
     substitutes `[param]` and `*`. A Flask-style `<title>` survives escaping as a
@@ -131,7 +142,7 @@ def to_x402_pattern(flask_rule: str) -> str:
     return re.sub(r"<(?:[^:<>]+:)?([^<>]+)>", r"[\1]", flask_rule)
 
 
-def routes_for(cfg: NodeConfig, slug_example: str) -> dict[str, Any]:
+def routes_for(cfg: NodeConfig) -> dict[str, Any]:
     """Route table keyed the way the middleware expects: "<METHOD> <path>"."""
-    pattern = to_x402_pattern(cfg.raw["routes"]["issue"])
-    return {f"GET {pattern}": issue_route_config(cfg, slug_example)}
+    pattern = to_x402_pattern(cfg.raw["routes"]["notarize"])
+    return {f"POST {pattern}": notarize_route_config(cfg)}

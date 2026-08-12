@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# PintheonV2 - VPS Startup Script
+# Authen - VPS Startup Script
 #
 # Provisions the flagship node: the one instance that carries competition uptime.
 # Public HTTPS, real certificate, paid x402 endpoint settling on Algorand mainnet.
@@ -10,7 +10,7 @@
 #   - Container-based VPS (OpenVZ, LXC)
 #
 # Usage:
-#   curl -O https://raw.githubusercontent.com/inviti8/PintheonV2/main/scripts/vps_startup.sh
+#   curl -O https://raw.githubusercontent.com/inviti8/Authen/main/scripts/vps_startup.sh
 #   chmod +x vps_startup.sh
 #   sudo ./vps_startup.sh
 #
@@ -18,7 +18,7 @@
 #
 # Idempotent. Re-running after a reboot only ensures services are up.
 #
-# Logs: /var/log/pintheonv2-startup.log
+# Logs: /var/log/authen-startup.log
 #
 
 set -uo pipefail  # not -e: we handle errors with explicit messages
@@ -28,7 +28,7 @@ set -uo pipefail  # not -e: we handle errors with explicit messages
 #=============================================================================
 
 # Public hostname for this node. Must already have an A record pointing here.
-DOMAIN="pintheon.example.art"
+DOMAIN="authen.example.com"
 
 # Email for Let's Encrypt expiry notices. Required for unattended cert issuance.
 ADMIN_EMAIL=""
@@ -39,7 +39,7 @@ ADMIN_EMAIL=""
 PAYTO_MAINNET=""
 
 # Git repository
-REPO_URL="https://github.com/inviti8/PintheonV2.git"
+REPO_URL="https://github.com/inviti8/Authen.git"
 REPO_BRANCH="main"
 
 # GitHub Personal Access Token (only needed while the repo is private).
@@ -50,24 +50,24 @@ GITHUB_TOKEN=""
 NETWORK="mainnet"
 
 # Linux user that owns and runs the service
-PINTHEON_USER="pintheon"
+AUTHEN_USER="authen"
 
 #=============================================================================
 # END CONFIGURATION - Do not modify below unless you know what you're doing
 #=============================================================================
 
-# Derived paths. These match deploy/systemd/pintheonv2.service - if you change
+# Derived paths. These match deploy/systemd/authen.service - if you change
 # one, change both.
-APP_DIR="/opt/pintheonv2"
+APP_DIR="/opt/authen"
 VENV_DIR="${APP_DIR}/.venv"
-DATA_DIR="/var/lib/pintheonv2"
-ENV_DIR="/etc/pintheonv2"
+DATA_DIR="/var/lib/authen"
+ENV_DIR="/etc/authen"
 ENV_FILE="${ENV_DIR}/env"
-MARKER_DIR="/var/lib/pintheonv2-install"
+MARKER_DIR="/var/lib/authen-install"
 MARKER_FILE="${MARKER_DIR}/.initialized"
-LOG_FILE="/var/log/pintheonv2-startup.log"
+LOG_FILE="/var/log/authen-startup.log"
 
-# tomllib is stdlib only from 3.11. pintheonv2/config.py imports it, so 3.10 -
+# tomllib is stdlib only from 3.11. authen/config.py imports it, so 3.10 -
 # which is what Ubuntu 22.04 ships - cannot run this app at all.
 MIN_PY_MINOR=11
 
@@ -79,7 +79,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo ""
 echo "============================================================"
-echo "PintheonV2 Startup Script"
+echo "Authen Startup Script"
 echo "Started: $(date)"
 echo "============================================================"
 echo ""
@@ -94,8 +94,8 @@ fail() { echo ""; echo "ERROR: $*"; echo ""; exit 1; }
 # than just disabling HTTP/2. On nginx >= 1.25.1 that form still works but is
 # deprecated, so upgrade it to `http2 on;` there to keep `nginx -t` quiet.
 install_full_vhost() {
-    sed "s/pintheon\.example\.art/${DOMAIN}/g" \
-        "${APP_DIR}/deploy/nginx/pintheonv2.conf" > "$VHOST"
+    sed "s/authen\.example\.com/${DOMAIN}/g" \
+        "${APP_DIR}/deploy/nginx/authen.conf" > "$VHOST"
 
     local ver
     ver="$(nginx -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 0.0.0)"
@@ -119,7 +119,7 @@ if [[ -f "$MARKER_FILE" ]]; then
     echo ""
     echo "Ensuring services are running..."
 
-    systemctl is-active --quiet pintheonv2 || systemctl start pintheonv2
+    systemctl is-active --quiet authen || systemctl start authen
     systemctl is-active --quiet nginx      || systemctl start nginx
 
     echo "Services verified."
@@ -139,7 +139,7 @@ echo "--- Preflight ---"
 
 [[ "$(id -u)" -eq 0 ]] || fail "This script must be run as root (use sudo)."
 
-if [[ "$DOMAIN" == "pintheon.example.art" ]]; then
+if [[ "$DOMAIN" == "authen.example.com" ]]; then
     fail "DOMAIN is still the placeholder. Edit the CONFIGURATION block first."
 fi
 
@@ -180,7 +180,7 @@ echo ""
 # Python 3.11+
 #
 # This is the single most common deployment failure for this app. Ubuntu 22.04
-# ships Python 3.10, which has no tomllib, and pintheonv2/config.py imports it
+# ships Python 3.10, which has no tomllib, and authen/config.py imports it
 # at module scope. The app cannot start. Fail loudly here rather than at first
 # request.
 #-----------------------------------------------------------------------------
@@ -221,12 +221,12 @@ echo ""
 # Service user
 #-----------------------------------------------------------------------------
 
-echo "--- Creating service user '${PINTHEON_USER}' ---"
+echo "--- Creating service user '${AUTHEN_USER}' ---"
 
-if id "$PINTHEON_USER" >/dev/null 2>&1; then
+if id "$AUTHEN_USER" >/dev/null 2>&1; then
     echo "  user already exists"
 else
-    useradd --system --create-home --shell /usr/sbin/nologin "$PINTHEON_USER" \
+    useradd --system --create-home --shell /usr/sbin/nologin "$AUTHEN_USER" \
         || fail "could not create user"
     echo "  created"
 fi
@@ -314,40 +314,41 @@ echo "  public_url: https://${DOMAIN}"
 mkdir -p "$ENV_DIR"
 if [[ ! -f "$ENV_FILE" ]]; then
     cat > "$ENV_FILE" <<EOF
-# PintheonV2 service environment.
+# Authen service environment.
 #
 # Node secrets are NOT here. The node generates its identity seed on first boot
-# and persists it under PINTHEON_DATA_DIR, the same way V1 self-generates
-# master_key into pintheon.ini. Do not inject one except to restore a backup.
-PINTHEON_DATA_DIR=${DATA_DIR}
-PINTHEON_NETWORK=${NETWORK}
+# and persists it under AUTHEN_DATA_DIR, the same way V1 self-generates
+# master_key into authen.ini. Do not inject one except to restore a backup.
+AUTHEN_DATA_DIR=${DATA_DIR}
+AUTHEN_NETWORK=${NETWORK}
 EOF
     chmod 640 "$ENV_FILE"
     echo "  wrote ${ENV_FILE}"
 fi
 
-# Data directory holds pintheon.ini and the encrypted DB. Losing pintheon.ini
+# Data directory holds authen.ini and the encrypted DB. Losing authen.ini
 # makes the database permanently unreadable - this path must be backed up.
 mkdir -p "$DATA_DIR"
-chown -R "${PINTHEON_USER}:${PINTHEON_USER}" "$DATA_DIR" "$APP_DIR"
-chown root:"${PINTHEON_USER}" "$ENV_FILE"
+chown -R "${AUTHEN_USER}:${AUTHEN_USER}" "$DATA_DIR" "$APP_DIR"
+chown root:"${AUTHEN_USER}" "$ENV_FILE"
 
 echo ""
 
 #-----------------------------------------------------------------------------
-# Content
+# Node identity
+#
+# Generated on first boot into DATA_DIR, never injected by env. Record the public
+# key in config afterwards: startup then asserts it still matches, which catches a
+# state volume that failed to mount. A silently regenerated key looks like a clean
+# first boot and invalidates every attestation the node has ever signed.
 #-----------------------------------------------------------------------------
 
-echo "--- Content ---"
+echo "--- Node identity ---"
 
-if [[ -d "${DATA_DIR}/content/titles" ]] && \
-   [[ -n "$(ls -A "${DATA_DIR}/content/titles" 2>/dev/null)" ]]; then
-    echo "  titles already present"
+if [[ -f "${DATA_DIR}/node_seed.bin" ]]; then
+    echo "  existing identity found (seed present)"
 else
-    echo "  no titles yet - generating placeholder art so the node is servable"
-    sudo -u "$PINTHEON_USER" env PINTHEON_DATA_DIR="$DATA_DIR" \
-        "${VENV_DIR}/bin/python" "${APP_DIR}/tools/make_placeholder_content.py" \
-        || echo "  WARNING: placeholder generation failed; stage content manually"
+    echo "  none yet - generated on first start"
 fi
 
 echo ""
@@ -358,11 +359,11 @@ echo ""
 
 echo "--- Installing the systemd unit ---"
 
-install -m 644 "${APP_DIR}/deploy/systemd/pintheonv2.service" \
-    /etc/systemd/system/pintheonv2.service || fail "could not install unit"
+install -m 644 "${APP_DIR}/deploy/systemd/authen.service" \
+    /etc/systemd/system/authen.service || fail "could not install unit"
 systemctl daemon-reload
-systemctl enable --quiet pintheonv2
-echo "  enabled pintheonv2.service"
+systemctl enable --quiet authen
+echo "  enabled authen.service"
 
 echo ""
 
@@ -372,7 +373,7 @@ echo ""
 
 echo "--- Configuring nginx ---"
 
-VHOST="/etc/nginx/sites-available/pintheonv2.conf"
+VHOST="/etc/nginx/sites-available/authen.conf"
 install_full_vhost
 
 # The vhost references certificate paths that do not exist until certbot runs.
@@ -402,7 +403,7 @@ EOF
 fi
 
 rm -f /etc/nginx/sites-enabled/default
-ln -sf "$VHOST" /etc/nginx/sites-enabled/pintheonv2.conf
+ln -sf "$VHOST" /etc/nginx/sites-enabled/authen.conf
 nginx -t || fail "nginx configuration is invalid"
 systemctl enable --quiet nginx
 systemctl restart nginx
@@ -431,15 +432,15 @@ echo ""
 # Start the application
 #-----------------------------------------------------------------------------
 
-echo "--- Starting pintheonv2 ---"
+echo "--- Starting authen ---"
 
-systemctl restart pintheonv2
+systemctl restart authen
 sleep 4
-if systemctl is-active --quiet pintheonv2; then
+if systemctl is-active --quiet authen; then
     echo "  service is running"
 else
     echo "  SERVICE FAILED TO START. Recent log:"
-    journalctl -u pintheonv2 -n 30 --no-pager
+    journalctl -u authen -n 30 --no-pager
 fi
 
 echo ""
@@ -499,19 +500,20 @@ date > "$MARKER_FILE"
 #-----------------------------------------------------------------------------
 
 echo "============================================================"
-echo "PintheonV2 Initialization Complete"
+echo "Authen Initialization Complete"
 echo "============================================================"
 echo ""
 echo "Endpoints:"
 echo "  Health:    https://${DOMAIN}/health"
-echo "  Catalogue: https://${DOMAIN}/api/v1/titles   (free)"
-echo "  Issue:     https://${DOMAIN}/api/v1/issue/<slug>   (paid, 402)"
+echo "  Identity:  https://${DOMAIN}/api/v1/identity   (free - the signing key)"
+echo "  Verify:    https://${DOMAIN}/api/v1/verify     (free)"
+echo "  Notarize:  https://${DOMAIN}/api/v1/notarize   (paid, 402)"
 echo ""
 echo "Paths:"
 echo "  App:     ${APP_DIR}"
 echo "  Config:  ${APP_DIR}/config/node.toml"
 echo "  Env:     ${ENV_FILE}"
-echo "  Data:    ${DATA_DIR}   <-- BACK THIS UP (holds pintheon.ini)"
+echo "  Data:    ${DATA_DIR}   <-- BACK THIS UP (holds authen.ini)"
 echo ""
 echo "Next Steps:"
 echo ""
@@ -520,9 +522,9 @@ echo "       sudo bash ${APP_DIR}/scripts/status.sh"
 echo ""
 if [[ -z "$PAYTO_MAINNET" ]]; then
 echo "  2. Set the payTo address (REQUIRED before going live):"
-echo "       sudo -u ${PINTHEON_USER} nano ${APP_DIR}/config/node.toml"
+echo "       sudo -u ${AUTHEN_USER} nano ${APP_DIR}/config/node.toml"
 echo "       # [treasury] mainnet = \"<your-address>\""
-echo "       sudo systemctl restart pintheonv2"
+echo "       sudo systemctl restart authen"
 echo ""
 fi
 echo "  3. Confirm payTo is opted into USDC (ASA 31566704). Without this every"
@@ -537,7 +539,7 @@ echo "     before taking a real payment."
 echo ""
 echo "Logs:"
 echo "  Startup:  ${LOG_FILE}"
-echo "  Service:  journalctl -u pintheonv2 -f"
+echo "  Service:  journalctl -u authen -f"
 echo ""
 echo "Completed: $(date)"
 echo "============================================================"

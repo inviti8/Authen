@@ -144,7 +144,7 @@ def cmd_provision(asa_id: int | None) -> int:
                 decimals=6,
                 default_frozen=False,
                 unit_name="TUSDC",
-                asset_name="Test USDC (PintheonV2)",
+                asset_name="Test USDC (Authen)",
                 manager=funder["address"],
                 reserve=funder["address"],
                 strict_empty_address_check=False,

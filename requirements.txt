@@ -1,7 +1,7 @@
-# PintheonV2 — Phase 1 (registration gate)
+# Authen — Phase 1 (registration gate)
 #
-# Deliberately minimal. IPFS, TinyDB, aiposematic and the Stellar/Soroban ports are
-# Phase 2 and must not land on the Phase 1 critical path.
+# Deliberately minimal. IPFS pinning, the on-chain trust registry and C2PA manifest
+# signing (c2pa-python) are Phase 2 and must not land on the Phase 1 critical path.
 
 # `httpx` is not optional in practice: HTTPFacilitatorClientSync imports it lazily in
 # _get_client(), so without it server.initialize() fails at first /supported call.
@@ -10,6 +10,6 @@ x402-avm[flask,avm,extensions,httpx]==2.0.2
 flask==3.1.3
 gunicorn==23.0.0
 
-# Preview scrambling + page handling. aiposematic proper arrives in Phase 2; Pillow
-# carries the placeholder pipeline until then.
-pillow==11.3.0
+# Ed25519 signing for attestations, and X.509 for the C2PA app-CA in Phase 2.
+# The whole product rests on this one being correct.
+cryptography>=42,<47
