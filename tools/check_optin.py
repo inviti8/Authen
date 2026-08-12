@@ -82,9 +82,12 @@ def main() -> int:
         if args.network != "testnet":
             ap.error("--all is testnet only; pass --address for mainnet")
         accounts = load_testnet_accounts()
+        # The accounts file also carries bookkeeping entries such as `_asset`, which
+        # have no address. Select on the shape rather than on the key name.
         results = [
             check(args.network, v["address"], asa_id, label=role)
             for role, v in accounts.items()
+            if isinstance(v, dict) and "address" in v
         ]
         ok = all(results)
     elif args.address:

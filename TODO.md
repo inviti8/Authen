@@ -1,41 +1,56 @@
 # Morning TODO
 
-Five items. Only #1 and #2 are on the critical path for the **2026-09-01** registration
-deadline; #1 is the cheapest and unblocks the most.
+**#1 is done — testnet settlement works end to end.** The critical path for the
+**2026-09-01** deadline is now #2 (VPS + hostname) and #3 (mainnet account).
 
 Everything else is built and passing — see `IMPLEMENTATION_PLAN.md` §3 for the full
 Phase 1 checklist and the end of this file for what's already done.
 
 ---
 
-## 1. Send testnet USDC  ⏱️ ~1 minute  — *ALGO is done*
+## 1. ~~Testnet settlement~~ — **DONE, and it works**  ✅
 
-**Done:** 10 ALGO received; both accounts created, funded, and **opted in to real
-Circle testnet USDC (ASA `10458941`)**. ALGO top-ups are now scripted too — see
-`tools/dispenser.py` (the AlgoKit dispenser API *is* programmatic; my earlier claim
-that it wasn't was wrong).
+The full rail is proven end to end on Algorand testnet against the live GoPlausible
+facilitator: 402 → sign → verify → **settle on chain** → issue delivered → receipt.
 
-**Still needed:** testnet USDC to this address, from the faucet you found —
+```
+[1/4] 402 challenge   x402Version=2 accepts=1
+[2/4] payment signed  3432 byte header
+[3/4] paid request    200 application/zip 89285 bytes
+[4/4] settled         success=True
+      txid            WQZSNW67EMG4G4SUL3AQBQIY2ZVB4KMMII5N4CHTCHNTTKSRXHHQ
+```
+
+Confirmed independently on chain (round 66235006): 3.000000 units moved buyer →
+treasury, **fee 0** — the facilitator sponsored it via `feePayer`, exactly as the
+`exact` scheme intends. Reproduce any time with `python tools/pay_once.py`.
+
+This ran against a **self-minted stand-in ASA (`769120200`)**, not real USDC, because
+the USDC faucet was rate-limited. That is not a shortcut: the `exact` scheme takes any
+ASA id, and mainnet's `31566704` differs in no other way. Swapping the asset id is a
+one-line config change.
+
+**Optional, when the faucet cooldown lifts** — resend testnet USDC here to re-run the
+same test against real Circle USDC (ASA `10458941`, both accounts already opted in):
 
 ```
 NJO3MQADL3UO236P75NAV4NCVFNA2SVVYH6BVUO5MFMIHBZVXNAQNNNFYI
 ```
 
-Any amount over ~$10 is plenty ($3/issue). Your earlier send did not arrive because
-the account had not opted into the asset yet — an Algorand account cannot receive an
-ASA before opt-in, and the transfer just fails. That is fixed now, so a resend will
-land. Then:
+Your first send never arrived, and the chain shows why: the account had no opt-in at
+the time, so the transfer was rejected outright — there is no pending transaction to
+wait on. Both accounts are opted in now, so a resend will land. Then:
 
 ```bash
-python tools/testnet_setup.py --provision --asa 10458941   # forwards USDC to the buyer
-python tools/check_optin.py --network testnet --all
+python tools/testnet_setup.py --provision --asa 10458941
+python tools/pay_once.py     # after pointing config/node.local.toml at 10458941
 ```
 
-That unblocks the full 402 → verify → settle → receipt test.
-
-> The buyer account is `GSSX5NVBWLAEDI32KU7EBHF2CBN4SIUWXNDCYGFFPCVF6Z4SNADRUKXJTM`
-> — funded and opted in already, no need to touch it.
-> Mnemonics for both are in `.venv/testnet_accounts.json` (gitignored).
+> ALGO funding is scripted now too — `tools/dispenser.py` (`--login`, `--fund`).
+> The AlgoKit dispenser API *is* programmatic; my earlier claim that it wasn't was
+> wrong. One device-code login, then a 30-day token.
+>
+> Mnemonics live in `.venv/testnet_accounts.json` (gitignored).
 
 ---
 
@@ -113,6 +128,8 @@ top-20 costs $4.63 total volume (two issues), top-10 ~$46, top-5 ~$243.
 - 22 tests passing (`python -m pytest tests/ -q`)
 - Content pipeline running on placeholder art
 - nginx / systemd / gunicorn configs written
-- Testnet provisioning + opt-in verification scripts
+- Testnet provisioning, ALGO dispenser, opt-in verification scripts
+- **Full paid purchase settled on testnet** — see #1
 
-**Blocked only on #1** for the settlement test, and on **#2 + #3** for mainnet cutover.
+**Blocked on #2 + #3** for mainnet cutover. Those are now the only things between us
+and a live paid endpoint.

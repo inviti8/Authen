@@ -185,6 +185,14 @@ groups after the shortlist window closes.
 Also worth knowing: `/supported` reports `"extensions": []` even though the Bazaar
 extension demonstrably works. Do not gate on that field.
 
+Correction 1 is now confirmed on the wire, and its failure mode is worse than a plain
+error. Sending the payload under any other header name — `PAYMENT`, or v1's
+`X-PAYMENT` — makes the server see **no payment at all**: it re-challenges with a
+plain 402 and a generic `"error": "Payment required"`, which is indistinguishable
+from a payment the facilitator rejected. Meanwhile `/verify` returns
+`{"isValid": true}` for the very same payload. Diagnosing this by staring at the
+facilitator will not work; check the header name first.
+
 ---
 
 ## 2. Pricing — per issue
