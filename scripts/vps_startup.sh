@@ -86,6 +86,28 @@ echo ""
 
 fail() { echo ""; echo "ERROR: $*"; echo ""; exit 1; }
 
+# Write the full TLS vhost, adjusted for this nginx's HTTP/2 syntax.
+#
+# The committed vhost uses the legacy `listen 443 ssl http2;` form because it is
+# the one that cannot brick a server: unknown directives make nginx refuse to
+# load its entire configuration, so getting this wrong takes the site down rather
+# than just disabling HTTP/2. On nginx >= 1.25.1 that form still works but is
+# deprecated, so upgrade it to `http2 on;` there to keep `nginx -t` quiet.
+install_full_vhost() {
+    sed "s/pintheon\.example\.art/${DOMAIN}/g" \
+        "${APP_DIR}/deploy/nginx/pintheonv2.conf" > "$VHOST"
+
+    local ver
+    ver="$(nginx -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 0.0.0)"
+    if printf '%s\n%s\n' "1.25.1" "$ver" | sort -V -C; then
+        sed -i -E 's/^([[:space:]]*)listen (\[::\]:)?443 ssl http2;/\1listen \2443 ssl;/' "$VHOST"
+        sed -i -E '0,/^([[:space:]]*)listen \[::\]:443 ssl;/s//\1listen [::]:443 ssl;\n\1http2 on;/' "$VHOST"
+        echo "  nginx ${ver} >= 1.25.1 - using 'http2 on;'"
+    else
+        echo "  nginx ${ver} < 1.25.1 - using legacy 'listen ... http2' form"
+    fi
+}
+
 #-----------------------------------------------------------------------------
 # Check if this is a restart (marker file exists)
 #-----------------------------------------------------------------------------
@@ -351,8 +373,7 @@ echo ""
 echo "--- Configuring nginx ---"
 
 VHOST="/etc/nginx/sites-available/pintheonv2.conf"
-sed "s/pintheon\.example\.art/${DOMAIN}/g" \
-    "${APP_DIR}/deploy/nginx/pintheonv2.conf" > "$VHOST"
+install_full_vhost
 
 # The vhost references certificate paths that do not exist until certbot runs.
 # Serve plain HTTP first so the ACME challenge can complete, then let certbot
@@ -435,17 +456,25 @@ echo "--- TLS certificate ---"
 if [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
     echo "  certificate already present"
     # Ensure the full vhost (with TLS + x402 header handling) is in place.
-    sed "s/pintheon\.example\.art/${DOMAIN}/g" \
-        "${APP_DIR}/deploy/nginx/pintheonv2.conf" > "$VHOST"
+    install_full_vhost
     nginx -t && systemctl reload nginx
 elif [[ -n "$ADMIN_EMAIL" ]]; then
     if certbot --nginx --non-interactive --agree-tos \
         --email "$ADMIN_EMAIL" -d "$DOMAIN" --redirect; then
         echo "  certificate issued"
         # Swap in the real vhost now that the cert paths resolve.
-        sed "s/pintheon\.example\.art/${DOMAIN}/g" \
-            "${APP_DIR}/deploy/nginx/pintheonv2.conf" > "$VHOST"
-        nginx -t && systemctl reload nginx
+        install_full_vhost
+        if nginx -t; then
+            systemctl reload nginx
+        else
+            # Never leave an invalid config on disk: nginx is still serving the
+            # old one from memory, but the next restart or reboot would fail and
+            # take the endpoint down silently.
+            echo "  VHOST INVALID - reverting to the ACME-time config so nginx stays bootable"
+            certbot --nginx --non-interactive --agree-tos \
+                --email "$ADMIN_EMAIL" -d "$DOMAIN" --redirect --reinstall
+            nginx -t && systemctl reload nginx
+        fi
     else
         echo "  CERTIFICATE ISSUANCE FAILED."
         echo "  Most common cause: DNS is not yet pointing at this host."

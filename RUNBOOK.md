@@ -36,7 +36,7 @@ Edit the `CONFIGURATION` block at the top of `scripts/vps_startup.sh`:
 # CONFIGURATION - Modify these variables for your deployment
 #=============================================================================
 
-DOMAIN="pintheon.example.art"
+DOMAIN="pintheon.hvym.link"
 ADMIN_EMAIL=""
 PAYTO_MAINNET=""
 REPO_URL="https://github.com/inviti8/PintheonV2.git"
