@@ -1,27 +1,27 @@
 """Provision testnet accounts for the end-to-end payment test.
 
-Algorand has no Friendbot. Stellar's is an unauthenticated GET; every Algorand testnet
-faucet now funnels to https://lora.algokit.io/testnet/fund (a browser SPA) or the
-AlgoKit dispenser, which needs an OAuth token. Neither can be scripted.
+Algorand has no Friendbot, but ALGO funding *is* scriptable via the AlgoKit TestNet
+Dispenser API - see `tools/dispenser.py`. One device-code login yields a 30-day token,
+after which topping up is a single call. USDC is separate: it comes from a faucet.
 
-That gates exactly ONE step. Testnet ALGO moves freely once you hold some, so a single
-browser visit unblocks everything else:
+    1. python tools/dispenser.py --login    once per 30 days, opens a URL
+    2. python tools/dispenser.py --fund     ALGO into the funder account
+    3. python tools/testnet_setup.py --provision --asa 10458941
+    4. request testnet USDC for the funder from a faucet, then re-run step 3
 
-    1. HUMAN, ONCE:  fund the funder account at https://lora.algokit.io/testnet/fund
-    2. python tools/testnet_setup.py --provision
-
-Step 2 distributes ALGO, mints a stand-in USDC if needed, opts both accounts in, and
-hands the buyer something to spend.
-
-On the stand-in asset: real testnet USDC (ASA 10458941) is Circle-issued and has no
-open faucet, so obtaining it is its own chase. The testnet run exists to prove the
-402 -> verify -> settle -> receipt path, and the `exact` scheme takes any ASA id. So
-we mint our own 6-decimal token and point config at it. Mainnet uses the real ASA
-31566704 and nothing about the code path differs.
+Step 4 comes *after* step 3 on the first pass for a reason: an Algorand account
+cannot receive an ASA it has not opted into, and the faucet send simply does not
+arrive. Opt in first, then ask for the tokens.
 
     python tools/testnet_setup.py --new         create fresh throwaway accounts
     python tools/testnet_setup.py --status      balances and opt-in state
     python tools/testnet_setup.py --provision   do everything scriptable
+
+On the asset: pass `--asa 10458941` to use real Circle testnet USDC, which is what
+we do - it exercises a genuine third-party ASA rather than one we control. Without
+`--asa` the script mints its own 6-decimal stand-in, which remains useful when no
+USDC faucet will cooperate. The `exact` scheme takes any ASA id, and mainnet's
+31566704 differs in no other way.
 """
 
 from __future__ import annotations
@@ -71,8 +71,10 @@ def cmd_new() -> int:
     print("Created throwaway testnet accounts (mnemonics are gitignored):\n")
     for role, v in accounts.items():
         print(f"  {role:9} {v['address']}")
-    print(f"\nNow fund the FUNDER account at {FAUCET_URL}")
-    print(f"Ask for {fmt_algo(FUNDER_TARGET_MICROALGO)} or more, then run --provision")
+    print("\nNow fund the FUNDER account with ALGO:")
+    print("    python tools/dispenser.py --login && python tools/dispenser.py --fund")
+    print(f"or by hand at {FAUCET_URL} (ask for {fmt_algo(FUNDER_TARGET_MICROALGO)}).")
+    print("Then run --provision.")
     return 0
 
 
@@ -90,7 +92,9 @@ def cmd_status(asa_id: int) -> int:
             ready = False
     print()
     if not ready:
-        print(f"Unfunded accounts present. Fund 'funder' at {FAUCET_URL}")
+        print("Unfunded accounts present. Fund 'funder' with:")
+        print("    python tools/dispenser.py --fund")
+        print(f"or by hand at {FAUCET_URL}")
     return 0
 
 
@@ -169,20 +173,35 @@ def cmd_provision(asa_id: int | None) -> int:
         print(f"  {role:9} opted in to {asa_id}")
 
     # 4. Give the buyer something to spend.
+    #
+    #    When we minted the asset ourselves the funder holds the entire supply, so this
+    #    always works. With a real asset (testnet USDC 10458941) the funder holds only
+    #    what a faucet gave it, which may be nothing yet — so cap the grant at what is
+    #    actually there and say so, rather than sending a transfer that fails at submit.
     buyer = accounts["buyer"]
-    held = asset_holding(account_info(NETWORK, buyer["address"]), asa_id)
-    if int((held or {}).get("amount", 0)) < BUYER_TOKEN_GRANT:
-        sp = c.suggested_params()
-        _send(
-            c,
-            transaction.AssetTransferTxn(
-                sender=funder["address"], sp=sp, receiver=buyer["address"],
-                amt=BUYER_TOKEN_GRANT, index=asa_id,
-            ).sign(fsk),
+    held = int((asset_holding(account_info(NETWORK, buyer["address"]), asa_id) or {}).get("amount", 0))
+    if held < BUYER_TOKEN_GRANT:
+        available = int(
+            (asset_holding(account_info(NETWORK, funder["address"]), asa_id) or {}).get("amount", 0)
         )
-        print(f"  buyer     granted {fmt_units(BUYER_TOKEN_GRANT)} TUSDC")
+        grant = min(BUYER_TOKEN_GRANT - held, available)
+        if grant <= 0:
+            print(
+                f"  buyer     holds {fmt_units(held)}; funder has none of asset {asa_id} "
+                "to grant - fund the funder from a faucet and re-run"
+            )
+        else:
+            sp = c.suggested_params()
+            _send(
+                c,
+                transaction.AssetTransferTxn(
+                    sender=funder["address"], sp=sp, receiver=buyer["address"],
+                    amt=grant, index=asa_id,
+                ).sign(fsk),
+            )
+            print(f"  buyer     granted {fmt_units(grant)} of asset {asa_id}")
 
-    print("\nProvisioned. Point config/node.local.toml at the stand-in asset:\n")
+    print("\nProvisioned. Point config/node.local.toml at the asset in use:\n")
     print(f'    [networks.testnet]\n    usdc_asa = "{asa_id}"')
     print(f'\n    [treasury]\n    testnet = "{accounts["treasury"]["address"]}"')
     return 0

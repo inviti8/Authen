@@ -8,30 +8,33 @@ Phase 1 checklist and the end of this file for what's already done.
 
 ---
 
-## 1. Fund the testnet account  ⏱️ ~2 minutes
+## 1. Send testnet USDC  ⏱️ ~1 minute  — *ALGO is done*
 
-Algorand has no Friendbot. Every faucet is browser-gated, so this one step needs a
-human; everything downstream is scripted (`IMPLEMENTATION_PLAN.md` §3.4).
+**Done:** 10 ALGO received; both accounts created, funded, and **opted in to real
+Circle testnet USDC (ASA `10458941`)**. ALGO top-ups are now scripted too — see
+`tools/dispenser.py` (the AlgoKit dispenser API *is* programmatic; my earlier claim
+that it wasn't was wrong).
 
-**Go to:** https://lora.algokit.io/testnet/fund
-
-**Fund this address** (testnet, throwaway, zero real value):
+**Still needed:** testnet USDC to this address, from the faucet you found —
 
 ```
 NJO3MQADL3UO236P75NAV4NCVFNA2SVVYH6BVUO5MFMIHBZVXNAQNNNFYI
 ```
 
-Ask for **5 ALGO** or more. Then tell me, or run it yourself:
+Any amount over ~$10 is plenty ($3/issue). Your earlier send did not arrive because
+the account had not opted into the asset yet — an Algorand account cannot receive an
+ASA before opt-in, and the transfer just fails. That is fixed now, so a resend will
+land. Then:
 
 ```bash
-python tools/testnet_setup.py --provision      # funds peers, mints stand-in asset, opts in
+python tools/testnet_setup.py --provision --asa 10458941   # forwards USDC to the buyer
 python tools/check_optin.py --network testnet --all
 ```
 
 That unblocks the full 402 → verify → settle → receipt test.
 
 > The buyer account is `GSSX5NVBWLAEDI32KU7EBHF2CBN4SIUWXNDCYGFFPCVF6Z4SNADRUKXJTM`
-> — it gets funded automatically by `--provision`, no need to touch it.
+> — funded and opted in already, no need to touch it.
 > Mnemonics for both are in `.venv/testnet_accounts.json` (gitignored).
 
 ---
