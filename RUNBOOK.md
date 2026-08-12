@@ -52,7 +52,7 @@ PINTHEON_USER="pintheon"
 | `ADMIN_EMAIL` | Let's Encrypt expiry notices. Required for unattended issuance; leave empty to skip TLS and do it by hand. |
 | `PAYTO_MAINNET` | The payTo **address**. Public — it is published in the Bazaar. The private key never touches the server. |
 | `REPO_URL` / `REPO_BRANCH` | Source to deploy. Change if using a fork. |
-| `GITHUB_TOKEN` | Fine-grained PAT, Contents → Read-only. Only needed while the repo is private. |
+| `GITHUB_TOKEN` | Fine-grained PAT, Contents → Read-only. **The repo is currently public — leave this empty.** Only needed if it is made private later. |
 | `NETWORK` | `mainnet` or `testnet`. Prove the flow on testnet first if this is a rehearsal. |
 | `PINTHEON_USER` | Service account. Owns `/opt/pintheonv2` and `/var/lib/pintheonv2`. |
 
