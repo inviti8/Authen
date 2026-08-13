@@ -102,7 +102,10 @@ def notarize_route_config(cfg: NodeConfig) -> dict[str, Any]:
                         "type": "string",
                         "description": (
                             "Raw request body - the exact bytes to hash. Any content "
-                            "type. Max 32 MiB; send a digest instead for larger objects."
+                            "type. Max 32 MiB. The digest is computed here from the "
+                            "bytes you send; there is no digest-submission mode, so "
+                            "posting a hex digest attests that hex string and not the "
+                            "object it was derived from."
                         ),
                     }
                 },

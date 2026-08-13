@@ -39,7 +39,17 @@ _EXPOSE_HEADERS = (
 
 # A notarization request is a hash operation, not a storage service. Cap the body
 # so one caller cannot pin a worker on a multi-gigabyte upload inside the payment
-# window. Callers with large objects should send a digest, not the bytes.
+# window.
+#
+# There is no digest-submission mode: notarize() hashes whatever arrives, so a
+# caller who sends a hex digest gets an attestation over that hex string. Do not
+# reintroduce "send a digest for larger objects" as advice anywhere — it reads as
+# a supported path and fails silently with a correct signature over the wrong
+# thing. Building it for real means a distinct `i` value (the node observed a
+# claim about bytes, not the bytes), which is a payload change, not a doc change.
+#
+# deploy/nginx/authen.conf must stay <= this number: nginx is what refuses an
+# oversized body BEFORE the paywall. See the ordering note in that file.
 MAX_BODY_BYTES = 32 * 1024 * 1024
 
 
