@@ -66,6 +66,29 @@ def test_enriched_declaration_validates(cfg):
         assert result.valid, f"{key}: {result.errors}"
 
 
+def test_schema_method_enum_equals_the_declared_method(cfg):
+    """The catalog validator wants equality, not membership.
+
+    `declare_discovery_extension` emits the whole verb family - POST/PUT/PATCH for
+    a body declaration - and `enrich_declaration` injects one real method. POST is
+    a MEMBER of that enum, so `validate_discovery_extension` returns valid and
+    jsonschema is satisfied. The facilitator's catalog validator is stricter, and
+    its x402 Doctor says so directly:
+
+        bazaar.schema method enum must match the declared method
+
+    That mismatch silently skips cataloging while every other signal - challenge,
+    /verify, settlement - stays green. Membership passing our own tools while
+    equality is what actually matters is precisely why this test asserts equality.
+    """
+    for key, method, enriched in _declarations(cfg):
+        enum = enriched["schema"]["properties"]["input"]["properties"]["method"]["enum"]
+        assert enum == [method], (
+            f"{key}: schema enum {enum} != [{method!r}]. The SDK's default verb "
+            "family is rejected by the catalog; pin_method() must narrow it."
+        )
+
+
 def test_declared_method_matches_route(cfg):
     for key, method, enriched in _declarations(cfg):
         assert enriched["info"]["input"]["method"] == method, key

@@ -120,6 +120,43 @@ def merchant_extension(cfg: NodeConfig) -> dict[str, Any]:
     }
 
 
+def pin_method(discovery: dict[str, Any], method: str) -> dict[str, Any]:
+    """Narrow the bazaar schema's `method` enum to exactly this route's method.
+
+    The facilitator's catalog validator is STRICTER than the SDK's. Its own
+    x402 Doctor reports, against a declaration the SDK calls valid:
+
+        Bazaar discovery extension — Present but REJECTED by the catalog
+        validator (cataloging silently skips):
+        bazaar.schema method enum must match the declared method
+
+    `declare_discovery_extension` hardcodes the whole verb family —
+    `["POST","PUT","PATCH"]` for a body declaration, `["GET","HEAD","DELETE"]`
+    for a query one — while `enrich_declaration` injects the single real method
+    into `info` at request time. `POST` is a member of that enum, so
+    `validate_discovery_extension` passes and jsonschema passes. The catalog
+    wants equality, not membership, so every declaration the SDK helper produces
+    is dropped.
+
+    Silent, again: challenge served, /verify valid, settlement fine, resource
+    never cataloged. This is the second variant of that failure mode — see the
+    `body_type` note above for the first — and it is why the Doctor is worth
+    running rather than trusting the SDK's own validator.
+
+    Narrowing to one method is also just more accurate: this route serves POST
+    and nothing else.
+    """
+    try:
+        props = discovery["bazaar"]["schema"]["properties"]["input"]["properties"]
+        props["method"]["enum"] = [method]
+    except (KeyError, TypeError) as exc:  # pragma: no cover - shape guard
+        raise RuntimeError(
+            "bazaar declaration is not the shape this function expects; the SDK "
+            f"helper may have changed: {exc}"
+        ) from exc
+    return discovery
+
+
 def with_merchant(cfg: NodeConfig, discovery: dict[str, Any]) -> dict[str, Any]:
     """Attach this node's identity to a discovery extension.
 
@@ -171,7 +208,7 @@ def notarize_route_config(cfg: NodeConfig) -> dict[str, Any]:
             "and time only - not authorship, ownership, or prior existence."
         ),
         "mime_type": "application/json",
-        "extensions": with_merchant(cfg, declare_discovery_extension(
+        "extensions": with_merchant(cfg, pin_method(declare_discovery_extension(
             input="<raw bytes of the content to notarize>",
             input_schema={
                 "type": "string",
@@ -200,7 +237,7 @@ def notarize_route_config(cfg: NodeConfig) -> dict[str, Any]:
                     },
                 },
             ),
-        )),
+        ), "POST")),
     }
 
 
@@ -237,7 +274,7 @@ def c2pa_route_config(cfg: NodeConfig) -> dict[str, Any]:
             "signature as cryptographically valid but the signer as untrusted."
         ),
         "mime_type": "image/jpeg",
-        "extensions": with_merchant(cfg, declare_discovery_extension(
+        "extensions": with_merchant(cfg, pin_method(declare_discovery_extension(
             input="<raw image bytes; Content-Type must be image/*>",
             input_schema={
                 "type": "string",
@@ -254,7 +291,7 @@ def c2pa_route_config(cfg: NodeConfig) -> dict[str, Any]:
                     "X-Authen-Attestation": "<b64url-sig>.<b64url-payload>",
                 },
             ),
-        )),
+        ), "POST")),
     }
 
 
