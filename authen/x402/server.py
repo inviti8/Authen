@@ -209,21 +209,46 @@ def notarize_route_config(cfg: NodeConfig) -> dict[str, Any]:
         ),
         "mime_type": "application/json",
         "extensions": with_merchant(cfg, pin_method(declare_discovery_extension(
-            input="<raw bytes of the content to notarize>",
-            input_schema={
-                "type": "string",
-                "description": (
-                    "Raw request body - the exact bytes to hash. Any content "
-                    "type. Max 32 MiB. The digest is computed here from the "
-                    "bytes you send; there is no digest-submission mode, so "
-                    "posting a hex digest attests that hex string and not the "
-                    "object it was derived from."
-                ),
+            input={
+                "content_base64": "<standard base64 of the bytes to notarize>",
+                "media_type": "application/pdf",
             },
-            # The body is raw bytes, not a JSON document. "text" is the closest of the
-            # three permitted values (json | form-data | text) and, unlike "json",
-            # does not tell a caller to wrap the payload in an envelope.
-            body_type="text",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "content_base64": {
+                        "type": "string",
+                        "description": (
+                            "Standard base64 of the exact bytes to hash. The "
+                            "attestation covers the DECODED bytes, so the digest "
+                            "matches your original file, not this envelope. Any "
+                            "content, text or binary. Max 32 MiB per request; "
+                            "base64 costs ~33% in transfer, so roughly 24 MiB of "
+                            "payload - to use the full 32 MiB, POST the bytes as "
+                            "the raw request body with any other Content-Type, "
+                            "which this route also accepts and which produces an "
+                            "identical attestation. There is no digest-submission "
+                            "mode: posting a hex digest attests that hex string, "
+                            "not the object it came from."
+                        ),
+                    },
+                    "media_type": {
+                        "type": "string",
+                        "description": (
+                            "Optional. Describes the decoded bytes, not the JSON "
+                            "envelope. Recorded in the attestation as `m`."
+                        ),
+                    },
+                },
+                "required": ["content_base64"],
+            },
+            # `json` with an object body, though the route's native form is raw
+            # bytes and `text` describes that honestly. The catalog validator
+            # refuses a non-object body - "body discovery body must be an object" -
+            # and raw bytes have no object form. So rather than declare a shape the
+            # route does not accept, notarize() genuinely takes this envelope and
+            # unwraps it, and raw bytes keep working. See GoPlausible/.github#6.
+            body_type="json",
             output=OutputConfig(
                 example={
                     "attestation": "<b64url-sig>.<b64url-payload>",
@@ -275,16 +300,38 @@ def c2pa_route_config(cfg: NodeConfig) -> dict[str, Any]:
         ),
         "mime_type": "image/jpeg",
         "extensions": with_merchant(cfg, pin_method(declare_discovery_extension(
-            input="<raw image bytes; Content-Type must be image/*>",
-            input_schema={
-                "type": "string",
-                "description": (
-                    "Raw image bytes. Supported: jpeg, png, webp, tiff, "
-                    "avif, heic. Max 32 MiB."
-                ),
+            input={
+                "image_base64": "<standard base64 of the image>",
+                "media_type": "image/png",
             },
-            # See the note on notarize_route_config: raw bytes, not a JSON envelope.
-            body_type="text",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "image_base64": {
+                        "type": "string",
+                        "description": (
+                            "Standard base64 of the image. Supported: jpeg, png, "
+                            "webp, tiff, avif, heic. Max 32 MiB per request; "
+                            "base64 costs ~33% in transfer, so roughly 24 MiB of "
+                            "image - to use the full 32 MiB, POST the raw image "
+                            "bytes with an image/* Content-Type, which this route "
+                            "also accepts."
+                        ),
+                    },
+                    "media_type": {
+                        "type": "string",
+                        "description": (
+                            "Required with image_base64. The format decides how "
+                            "the manifest is embedded, and a JSON envelope leaves "
+                            "no Content-Type to infer it from."
+                        ),
+                    },
+                },
+                "required": ["image_base64", "media_type"],
+            },
+            # See the note on notarize_route_config: object body required by the
+            # catalog validator, so the route accepts this envelope for real.
+            body_type="json",
             output=OutputConfig(
                 example={
                     "body": "<the same image with a C2PA manifest embedded>",

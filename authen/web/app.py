@@ -19,6 +19,8 @@ attestation. That distinction is what judged criterion 2 measures.
 
 from __future__ import annotations
 
+import base64
+
 from flask import Flask, Response, jsonify, request
 from x402.http.constants import (
     PAYMENT_REQUIRED_HEADER,
@@ -177,8 +179,47 @@ def create_app(cfg: NodeConfig | None = None) -> Flask:
 
         Reaching this handler means the middleware verified payment and will settle
         before any of this response is released to the caller.
+
+        Two ways in, identical digest either way:
+
+            any Content-Type   the body IS the bytes. Cheapest, and the only sane
+                               option near the 32 MiB cap.
+            application/json   {"content_base64": "<b64>", "media_type": "..."}
+                               base64 costs ~33% in transfer, so ~24 MiB of
+                               payload against the same cap.
+
+        The JSON form is not decoration. The Bazaar's catalog validator requires
+        the declared `body` to be an object - "body discovery body must be an
+        object" - and a raw-bytes body has no object form. Rather than declare a
+        shape the route does not accept, which would have callers wrap bytes in an
+        envelope we then hash (a correctly-signed attestation of the wrong thing),
+        the route accepts the envelope and unwraps it. The declaration is true.
+        See GoPlausible/.github#6 and authen/x402/server.py.
         """
-        data = request.get_data(cache=False)
+        media_type = request.content_type or None
+
+        if (request.content_type or "").split(";")[0].strip() == "application/json":
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or "content_base64" not in body:
+                return jsonify(
+                    {
+                        "error": "json body must be an object with content_base64",
+                        "expected": {
+                            "content_base64": "<standard base64 of the bytes>",
+                            "media_type": "<optional, describes the decoded bytes>",
+                        },
+                    }
+                ), 400
+            try:
+                data = base64.b64decode(body["content_base64"], validate=True)
+            except Exception:
+                return jsonify({"error": "content_base64 is not valid base64"}), 400
+            # The attestation covers the DECODED bytes, so the media type has to
+            # describe those, not the JSON envelope that carried them.
+            media_type = body.get("media_type") or None
+        else:
+            data = request.get_data(cache=False)
+
         if not data:
             return jsonify({"error": "empty body — send the bytes to notarize"}), 400
 
@@ -186,7 +227,7 @@ def create_app(cfg: NodeConfig | None = None) -> Flask:
             identity,
             digest_hex=sha256_hex(data),
             size=len(data),
-            media_type=request.content_type or None,
+            media_type=media_type,
         )
         return jsonify(
             {
@@ -204,12 +245,42 @@ def create_app(cfg: NodeConfig | None = None) -> Flask:
 
         Reaching this handler means payment verified and will settle before any of
         this response is released.
+
+        Same two ways in as notarize, for the same reason - the catalog validator
+        requires an object body:
+
+            image/*            the body IS the image bytes.
+            application/json   {"image_base64": "<b64>", "media_type": "image/png"}
+                               media_type is REQUIRED here: unlike notarize, the
+                               format decides how the manifest is embedded, and
+                               there is no Content-Type to fall back on once the
+                               envelope is JSON.
         """
-        data = request.get_data(cache=False)
+        media_type = (request.content_type or "").split(";")[0].strip()
+
+        if media_type == "application/json":
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict) or "image_base64" not in body:
+                return jsonify(
+                    {
+                        "error": "json body must be an object with image_base64",
+                        "expected": {
+                            "image_base64": "<standard base64 of the image>",
+                            "media_type": "<required, e.g. image/png>",
+                        },
+                    }
+                ), 400
+            try:
+                data = base64.b64decode(body["image_base64"], validate=True)
+            except Exception:
+                return jsonify({"error": "image_base64 is not valid base64"}), 400
+            media_type = (body.get("media_type") or "").split(";")[0].strip()
+        else:
+            data = request.get_data(cache=False)
+
         if not data:
             return jsonify({"error": "empty body - send the image bytes"}), 400
 
-        media_type = (request.content_type or "").split(";")[0].strip()
         if media_type not in SUPPORTED_FORMATS:
             return jsonify(
                 {

@@ -20,6 +20,8 @@ tests track the library instead of our assumptions about it. No network needed.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from x402.extensions.bazaar import validate_discovery_extension
 from x402.extensions.bazaar.server import bazaar_resource_server_extension
@@ -161,6 +163,56 @@ def test_merchant_categories_carry_the_competition_tag(cfg):
         cats = route["extensions"]["x402-merchant"]["info"]["categories"]
         assert cfg.tag in cats, f"{key}: {cfg.tag!r} missing from {cats}"
         assert len(set(cats)) == len(cats), f"{key}: duplicate categories"
+
+
+def test_body_declaration_is_an_object(cfg):
+    """The catalog validator refuses a non-object body.
+
+    Verbatim from GoPlausible's x402 Doctor, against a declaration the SDK's own
+    validator called valid:
+
+        Bazaar discovery extension - Present but REJECTED by the catalog
+        validator (cataloging silently skips): body discovery body must be an
+        object
+
+    A bare string body is what `body_type="text"` produces and is the honest
+    description of a raw-bytes endpoint, but it is uncataloguable. The routes
+    accept a JSON envelope for real so the object declaration is true rather than
+    aspirational - see the handlers in authen/web/app.py.
+    """
+    for key, method, enriched in _declarations(cfg):
+        if method not in ("POST", "PUT", "PATCH"):
+            continue
+        body = enriched["info"]["input"]["body"]
+        assert isinstance(body, dict), f"{key}: body is {type(body).__name__}, not an object"
+        assert body, f"{key}: body object is empty, so it documents nothing"
+        body_schema = enriched["schema"]["properties"]["input"]["properties"]["body"]
+        assert body_schema.get("type") == "object", (
+            f"{key}: body schema declares {body_schema.get('type')!r}, not 'object'"
+        )
+
+
+def test_declared_body_fields_are_the_ones_the_handler_reads(cfg):
+    """The declaration and the handler must name the same fields.
+
+    A rename on one side alone is silent: the catalog would advertise a field the
+    route ignores, and a caller following the published schema would get a 400 -
+    or worse, an attestation over something they did not intend.
+    """
+    source = (
+        Path(__file__).resolve().parent.parent / "authen" / "web" / "app.py"
+    ).read_text(encoding="utf-8")
+    for key, method, enriched in _declarations(cfg):
+        if method not in ("POST", "PUT", "PATCH"):
+            continue
+        required = enriched["schema"]["properties"]["input"]["properties"]["body"].get(
+            "required", []
+        )
+        assert required, f"{key}: body schema requires nothing"
+        for field in required:
+            assert f'"{field}"' in source, (
+                f"{key}: schema requires {field!r} but app.py never reads it"
+            )
 
 
 def test_query_shape_on_a_post_route_is_rejected(cfg):

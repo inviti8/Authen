@@ -29,6 +29,7 @@ tracks the config instead of a copy of it. No network.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -79,11 +80,18 @@ def _caps() -> dict[str, int]:
 
 
 def _advertised_max(route_config) -> int:
-    """The 'Max NN MiB' a buyer reads in the cataloged Bazaar input schema."""
+    """The 'Max NN MiB' a buyer reads in the cataloged Bazaar input schema.
+
+    Searches the whole body schema rather than one fixed key. The body was a bare
+    string while `bodyType` was "text" and is an object now that the catalog
+    validator requires one ("body discovery body must be an object"). The limit
+    has to stay findable across that change: it is the number a buyer plans
+    against and the facilitator catalogs it permanently.
+    """
     schema = route_config["extensions"]["bazaar"]["schema"]
-    text = schema["properties"]["input"]["properties"]["body"]["description"]
-    m = re.search(r"Max\s+(\d+)\s*MiB", text)
-    assert m, f"no advertised size in: {text!r}"
+    body = schema["properties"]["input"]["properties"]["body"]
+    m = re.search(r"Max\s+(\d+)\s*MiB", json.dumps(body))
+    assert m, f"no advertised size anywhere in the body schema: {body!r}"
     return int(m.group(1)) * 1024**2
 
 
