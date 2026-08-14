@@ -50,7 +50,19 @@ _EXPOSE_HEADERS = (
 #
 # deploy/nginx/authen.conf must stay <= this number: nginx is what refuses an
 # oversized body BEFORE the paywall. See the ordering note in that file.
-MAX_BODY_BYTES = 32 * 1024 * 1024
+#
+# 48 MiB, not 32, and the gap is deliberate. This is Flask's MAX_CONTENT_LENGTH,
+# which applies to EVERY route, so it has to clear the largest per-route cap nginx
+# grants — and that is /api/v1/c2pa/verify at 48m, not the 32 MiB paid input cap.
+# A C2PA-signed artifact is always larger than the bytes that produced it, so the
+# free route that reads signed output must accept more than the paid route that
+# produces it. Leave this at 32 and c2pa/verify 413s at 32 MiB no matter what
+# nginx allows, because Flask is the stricter layer. See AUTHEN_API_REPORT.md §5.
+#
+# Raising this does NOT widen the paid routes: nginx still caps them at 32m, and
+# nginx-stricter-than-Flask is the invariant that keeps the size check ahead of
+# the paywall. tests/test_body_limits.py pins the whole ordering.
+MAX_BODY_BYTES = 48 * 1024 * 1024
 
 
 def create_app(cfg: NodeConfig | None = None) -> Flask:
