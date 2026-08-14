@@ -11,9 +11,12 @@ agent can generate opinions cheaply; it cannot attest that a specific artifact
 existed at a specific moment, signed by a key anyone can check. Phase 1 is the
 notary — SHA-256 plus an Ed25519 detached signature in
 `b64url(sig).b64url(payload)` form. C2PA manifest signing for images
-(`c2pa-python`) shipped alongside it. Phase 2 is paid storage and transfer plus
-on-chain time anchoring — see **Phase 2** below, which supersedes the older
-"Phase 2 adds IPFS pinning" framing.
+(`c2pa-python`) shipped alongside it. Phase 2 is on-chain time anchoring plus an
+MCP client — see **Phase 2** below, which supersedes both the older "Phase 2 adds
+IPFS pinning" framing and the paid-storage plan that briefly replaced it.
+
+**Authen does not store content, and that is a product decision, not a gap.** It
+hashes bytes, signs a statement about them, and discards them inside the request.
 
 ## Hard deadline
 
@@ -64,17 +67,39 @@ Verified on the wire, not assumed:
   therefore be separate routes, not multiple `accepts` entries** — the latter would
   silently charge every caller the first price regardless of what they sent.
 
+- **The 402 challenge travels in the `PAYMENT-REQUIRED` response header**, base64 of
+  the JSON, and the *body is `{}`*. An empty body on a 402 is normal and is not
+  evidence of anything. This wasted a full diagnostic pass: an empty `{}` was read as
+  "the node rejected the request locally and never called the facilitator", when the
+  challenge had been in the header all along. Decode the header before concluding
+  anything about a 402.
+
 Measured and NOT true yet:
 
-- **The node is not in the Bazaar.** As of 2026-08-13, after the first mainnet
-  payment settled: all 5,963 resources on `/discovery/resources` contain neither
-  `authen.hvym.link` nor our payTo; `/discovery/merchants/{b64(payTo[:24])}` and
-  `/discovery/resources/{b64url("POST:<url>")}` both 404. The 402 challenge *does*
-  carry `extensions.bazaar`, and the middleware registers the extension
-  (`middleware/flask.py:314-316`), so the gap is between "we serve it" and "the
-  facilitator catalogs it" — not a missing declaration. **This is a 2026-09-01 gate
-  item.** Re-check with the derived-id lookups above; do not infer listing from the
-  challenge containing the extension.
+- **The node is not in the Bazaar — cause found 2026-08-14, fix committed, deploy
+  pending.** Our own `extensions.bazaar` declaration was self-invalid on every
+  challenge we ever served: `info.input.method` said `"POST"` while the schema
+  shipped beside it constrained `method` to `["GET","HEAD","DELETE"]`. The facilitator
+  drops it at parse time and nothing surfaces — challenge, /verify and settlement all
+  behave normally. Root cause and the mandatory `body_type` argument are documented at
+  the top of `authen/x402/server.py`; `tests/test_bazaar_declaration.py` pins it.
+  Confirmed by running the SDK's own `validate_discovery_extension` over the live
+  declaration:
+
+      ValidationResult(valid=False,
+                       errors=["input/method: 'POST' is not one of "
+                               "['GET', 'HEAD', 'DELETE']"])
+
+  Baseline before the fix, for comparison after deploying: all 5,963 resources on
+  `/discovery/resources` contained neither `authen.hvym.link` nor our payTo, and
+  `/discovery/merchants/{b64(payTo[:24])}` and
+  `/discovery/resources/{b64url("POST:<url>")}` both 404'd. **Still a 2026-09-01 gate
+  item until a lookup returns 200.** Re-check with the derived-id lookups; do not
+  infer listing from the challenge containing the extension.
+- **The live node is behind `main`.** As of 2026-08-14 it still serves the removed
+  "send a digest instead for larger objects" text in its input schema, which was
+  fixed in d62b6dd, and still enforces the 4 MiB nginx cap. Any Bazaar recheck is
+  meaningless until it is redeployed.
 
 ## House rules
 
@@ -84,13 +109,16 @@ Measured and NOT true yet:
   with this digest at this time" — not authorship, not ownership, not prior
   existence. The first counterexample discredits every attestation ever issued, so
   the narrow wording in `authen/notary.py` is load-bearing, not boilerplate.
-- **Verification stays free. Bytes are not.** Checking an attestation costs nothing
-  and always will. Retrieving stored content is a paid route — decided 2026-08-13.
-  The two are different products and only the first is a house rule.
-- **Never announce stored content to the IPFS DHT.** If a CID is resolvable from
-  `ipfs.io`, the paid download route is decoration — anyone with the CID fetches the
-  bytes from a public gateway for free. This is a `Routing.Type`/reprovider setting
-  that reads as a harmless default to anyone who does not know it is load-bearing.
+- **Verification stays free.** Checking an attestation costs nothing and always
+  will. An attestation nobody can afford to check is worth nothing, and the free
+  verify route is also what makes the paid one discoverable.
+- **The node persists no third-party bytes.** Content arrives, is hashed, and is
+  gone when the request ends. Nothing is written to disk, nothing is retained,
+  nothing is served back. This is what keeps Authen out of the intermediary-liability
+  business entirely — no retention policy, no takedown queue, no abuse process, and
+  no path by which someone else's content can get the node suspended during a judged
+  uptime window. Reversing it is a Phase 3 conversation with a threat model attached,
+  not a feature addition. See **Phase 2** for why storage was dropped.
 - **One payTo.** No `DynamicPayTo`, no second recipient in the payment group,
   before 2026-10-08.
 - **The payTo private key never touches the server.** The `exact` scheme only needs
@@ -99,29 +127,62 @@ Measured and NOT true yet:
   env. Record its public half in config so a silently regenerated identity fails
   loudly instead of quietly invalidating every attestation.
 
-## Phase 2 — storage, transfer, anchoring (decided 2026-08-13)
+## Phase 2 — anchoring and an MCP client (decided 2026-08-13)
 
-The product is agent-to-agent file handoff with provenance attached: A pays to
-store bytes and gets an attestation, B pays to fetch them and can verify offline,
-for free, that they are exactly the bytes A registered and when. Two agents that
-have never met need no shared account and no credential exchange — the payment is
-the authorization. That is the part S3 presigned URLs cannot do.
+**Paid storage was designed and dropped the same day, and never committed.** What
+follows is why, so nobody re-derives it from scratch in three weeks.
 
-**No Kubo for now — blobs keyed by SHA-256 on local disk.** IPFS was considered for
-durability and for scaling past the VPS's 60 GiB SSD. On durability it does not
-help: a single-node pin is exactly as durable as a file on the same disk, because
-nothing replicates a CID unless another operator chooses to pin it, and none will.
-On scaling the argument is better — a self-run `ipfs-cluster` fleet is a real
-answer — but so are a bigger block volume and an S3-compatible store, and R2's
-zero egress bears directly on a paid-download product. The property that keeps all
-of those open is **content addressing, not IPFS**: with blobs keyed by SHA-256 the
-backing store can move to Kubo, a cluster, R2, or a larger volume without touching
-the API or invalidating a single attestation. So the option is preserved and the
-operational cost is not paid during the window where uptime is a judged input.
-Arithmetic behind "not yet": ~45 GiB usable is ~1,440 objects at the 32 MiB
-ceiling, ~46,000 at 1 MiB. If we hit that wall before 10-08, something has gone
-very right and the migration is cheap. If Kubo does land, take `ipfs-cluster` for
-the pinset rather than scripting Kubo directly, and see the no-announce house rule.
+The pitch was agent-to-agent file handoff with provenance attached — A pays to store
+bytes, B pays to fetch them and can verify offline for free that they are exactly
+what A registered. Three things killed it:
+
+- **The liability is operational, not criminal.** The realistic bad day is not
+  prosecution; it is a VPS provider or registrar acting on an abuse report in hours,
+  unilaterally, with no appeal and no interest in whether we were negligent. Uptime
+  through 2026-10-08 is a judged input and the same box serves notarize, C2PA,
+  verify and identity, so there is no blast-radius separation. That trade would be
+  worth making for real money.
+- **There is no real money.** On this rail the median resource is $0.005 and the p90
+  is $0.08 — the same field data that killed the comics product. Storage during the
+  competition window plausibly earns lunch money while consuming the scarcest
+  resource we have, which is days before the gate.
+- **Content inspection cannot be the control.** Any classifier is defeated by
+  `openssl enc` before upload, and the portal's gate
+  (`heavymeta_collective/image_moderation.py`) detects *nudity*, which is legal,
+  rather than CSAM, which is the actual liability and which it has no age signal for.
+  Real coverage means PhotoDNA or NCMEC hash lists, and both have registration lead
+  times measured in weeks.
+
+**What replaces it: transfer without hosting.** A puts bytes wherever it likes — R2,
+S3, its own node, a plain URL — and pays Authen to attest the digest. B fetches from
+wherever and verifies free and offline. We supply the trust, they supply the bytes.
+The earlier claim that presigned URLs cannot do agent-to-agent handoff was wrong:
+they handle the no-shared-account part fine. What they cannot do is prove the bytes
+are what A said they were and when. That was always the valuable half; storage was
+the commodity half bolted on.
+
+**An MCP server is the distribution channel, and it is a client, not a product.**
+A free, open-source MCP server holding a wallet that pays per tool call is the most
+on-thesis demo this competition can have: `notarize(path)` reads a local file, pays,
+and writes the attestation beside it. Do **not** mistake it for a replacement for the
+paid endpoint — that idea was considered and does not work. x402 monetizes an HTTP
+resource *you* serve, so client-side code has nothing to gate and contributes zero
+leaderboard volume unless it calls paid routes; and client-side IPFS breaks the
+handoff premise outright, because B can only fetch while A is online and reachable,
+and agents are ephemeral. Keep the free routes (verify, identity, anchor proofs)
+working with no wallet configured, so the server is useful before it costs anything.
+The honest cost of this path is that a funded wallet on the caller's machine is a
+real adoption hurdle.
+
+**The storage option stays cheap to revisit.** The reason SHA-256 content addressing
+was chosen over Kubo was that the backing store can move to Kubo, `ipfs-cluster`, R2
+or a bigger volume without touching the API or invalidating a single attestation.
+That property is why dropping storage costs nothing later — it can come back on a box
+that is not carrying a judged uptime window. If it ever does, the entry cost is the
+whole trust-and-safety apparatus: hash-list matching, quarantine-not-delete (a
+takedown that shreds bytes destroys evidence there may be a duty to preserve),
+payer-address binding, and an abuse contact. That is the price, and it is why this is
+Phase 3 at the earliest.
 
 **Anchoring needs no contract.** The weak point in the product today is that `t` is
 whatever the node's clock said, signed by the node — we could backdate an
@@ -146,25 +207,21 @@ field cannot give. That is the real `hvym-cert-registry` port, it is the most
 expensive item here, and it already works on Stellar. Ship with the registry still
 on Soroban and explain the one-key-two-chains property rather than half-porting it.
 
-Order, cheapest-first and highest-value-first: **anchoring → storage routes →
-registry port**, with the report's streaming work (`AUTHEN_API_REPORT.md` §4)
-underneath storage — it gets load-bearing the moment bodies start hitting disk.
+Order, cheapest-first and highest-value-first: **anchoring → MCP client → registry
+port**. Anchoring goes first because it fixes the one genuine weakness in the product
+as shipped, and because it is the only item on the list with no external dependency.
 
-**Still open — do not treat the numbers below as decided.** Retention is
-unconfirmed; the proposal is 30 days, long enough for a handoff and short enough
-that one payment covers what it costs, with `/renew` as a real route rather than an
-apology. Proposed ladder, constrained by the $0.50 observed market maximum and by
-tiers-must-be-separate-routes: notarize $0.05 flat at any size (hashing is O(1)
-once streamed — the cost is bytes held over time, not bytes hashed);
-store 1/8/32 MiB at $0.05/$0.15/$0.40; fetch $0.01; renew at tier price. Whatever
-retention is chosen must be returned in the store response and stated in the Bazaar
-description — an agent that does not know the object expires will build as if it
-does not.
+Pricing is settled and unchanged: notarize $0.05, C2PA signing $0.15, verification
+and identity free. Both paid prices are live on mainnet and there is no reason to
+churn them. The size-tier ladder drafted for storage is void along with storage, and
+so is the constraint that forced it — with no per-size pricing, the
+`accepts[0]`-selector finding above stops binding on us, though it stays true.
 
-Two risks this opens that Phase 1 did not have: unbounded egress if a fetch is ever
-free (one payment, unlimited retrievals), and hosting arbitrary third-party bytes on
-a box tied to a real identity — retention limits, no open gateway, and a working
-unpin path before the first upload, not after the first incident.
+One consequence worth noting: the streaming work in `AUTHEN_API_REPORT.md` §4 drops
+from load-bearing to optional. It was going to matter the moment bodies started
+hitting disk, and now they never do. `MAX_BODY_BYTES` at 32 MiB and the matching
+nginx cap still bound worst-case memory, so the report's items 3 and 4 are a
+robustness improvement rather than a prerequisite.
 
 ## Related repos
 

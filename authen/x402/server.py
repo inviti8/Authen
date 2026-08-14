@@ -11,6 +11,28 @@ Two things here are registration-gate items and worth reading carefully:
   * `extensions["bazaar"]` is what triggers discovery registration. The middleware
     scans routes for it (`_check_if_bazaar_needed`) and attaches the extension; the
     facilitator then auto-catalogs on /verify. Drop it and the resource never appears.
+  * **`body_type` is mandatory for a POST route.** `declare_discovery_extension`
+    builds a *query* declaration when `body_type` is None — `method` constrained to
+    `enum ["GET","HEAD","DELETE"]`, input nested under `queryParams`. At request time
+    `BazaarResourceServerExtension.enrich_declaration` injects the real method into
+    `info.input`, so a POST route ends up declaring `method: "POST"` against a schema
+    that forbids it. The declaration is then self-invalid and the facilitator drops it
+    at parse time — `parse_discovery_extension` dispatches on the presence of
+    `bodyType`, routes ours to `QueryDiscoveryExtension`, and pydantic rejects
+    `'POST'`. Nothing surfaces: the 402 challenge still carries a
+    plausible-looking `extensions.bazaar`, /verify still returns valid, settlement
+    still succeeds, and the resource is simply never cataloged.
+
+    This cost us the Bazaar listing between 2026-08-12 and 2026-08-14. Reproduce with
+    `validate_discovery_extension()` — the facilitator's own validator, which ships in
+    this SDK — on the enriched declaration:
+
+        ValidationResult(valid=False,
+                         errors=["input/method: 'POST' is not one of "
+                                 "['GET', 'HEAD', 'DELETE']"])
+
+    Pinned by `tests/test_bazaar_declaration.py`. Do not infer listing from the
+    challenge containing the extension; validate the enriched form.
 """
 
 from __future__ import annotations
@@ -94,23 +116,21 @@ def notarize_route_config(cfg: NodeConfig) -> dict[str, Any]:
         ),
         "mime_type": "application/json",
         "extensions": declare_discovery_extension(
-            input={"body": "<raw bytes of the content to notarize>"},
+            input="<raw bytes of the content to notarize>",
             input_schema={
-                "type": "object",
-                "properties": {
-                    "body": {
-                        "type": "string",
-                        "description": (
-                            "Raw request body - the exact bytes to hash. Any content "
-                            "type. Max 32 MiB. The digest is computed here from the "
-                            "bytes you send; there is no digest-submission mode, so "
-                            "posting a hex digest attests that hex string and not the "
-                            "object it was derived from."
-                        ),
-                    }
-                },
-                "required": ["body"],
+                "type": "string",
+                "description": (
+                    "Raw request body - the exact bytes to hash. Any content "
+                    "type. Max 32 MiB. The digest is computed here from the "
+                    "bytes you send; there is no digest-submission mode, so "
+                    "posting a hex digest attests that hex string and not the "
+                    "object it was derived from."
+                ),
             },
+            # The body is raw bytes, not a JSON document. "text" is the closest of the
+            # three permitted values (json | form-data | text) and, unlike "json",
+            # does not tell a caller to wrap the payload in an envelope.
+            body_type="text",
             output=OutputConfig(
                 example={
                     "attestation": "<b64url-sig>.<b64url-payload>",
@@ -162,20 +182,16 @@ def c2pa_route_config(cfg: NodeConfig) -> dict[str, Any]:
         ),
         "mime_type": "image/jpeg",
         "extensions": declare_discovery_extension(
-            input={"body": "<raw image bytes; Content-Type must be image/*>"},
+            input="<raw image bytes; Content-Type must be image/*>",
             input_schema={
-                "type": "object",
-                "properties": {
-                    "body": {
-                        "type": "string",
-                        "description": (
-                            "Raw image bytes. Supported: jpeg, png, webp, tiff, "
-                            "avif, heic. Max 32 MiB."
-                        ),
-                    }
-                },
-                "required": ["body"],
+                "type": "string",
+                "description": (
+                    "Raw image bytes. Supported: jpeg, png, webp, tiff, "
+                    "avif, heic. Max 32 MiB."
+                ),
             },
+            # See the note on notarize_route_config: raw bytes, not a JSON envelope.
+            body_type="text",
             output=OutputConfig(
                 example={
                     "body": "<the same image with a C2PA manifest embedded>",
