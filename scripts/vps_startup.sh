@@ -28,7 +28,12 @@ set -uo pipefail  # not -e: we handle errors with explicit messages
 #=============================================================================
 
 # Public hostname for this node. Must already have an A record pointing here.
-DOMAIN="authen.example.com"
+#
+# Defaults to the flagship node's real hostname, which is also what is committed in
+# deploy/nginx/authen.conf — so provisioning the flagship needs no edit here, and the
+# vhost is deployable verbatim. Change this to provision a DIFFERENT host; the vhost
+# is rewritten to match (install_full_vhost), so never edit that file to retarget.
+DOMAIN="authen.hvym.link"
 
 # Email for Let's Encrypt expiry notices. Required for unattended cert issuance.
 ADMIN_EMAIL=""
@@ -93,8 +98,12 @@ fail() { echo ""; echo "ERROR: $*"; echo ""; exit 1; }
 # load its entire configuration, so getting this wrong takes the site down rather
 # than just disabling HTTP/2. On nginx >= 1.25.1 that form still works but is
 # deprecated, so upgrade it to `http2 on;` there to keep `nginx -t` quiet.
+# The committed vhost carries the flagship hostname, so this substitution is a no-op
+# for the flagship and only does work when provisioning a different DOMAIN.
+VHOST_DEFAULT_DOMAIN="authen.hvym.link"
+
 install_full_vhost() {
-    sed "s/authen\.example\.com/${DOMAIN}/g" \
+    sed "s/${VHOST_DEFAULT_DOMAIN//./\\.}/${DOMAIN}/g" \
         "${APP_DIR}/deploy/nginx/authen.conf" > "$VHOST"
 
     local ver
@@ -139,8 +148,8 @@ echo "--- Preflight ---"
 
 [[ "$(id -u)" -eq 0 ]] || fail "This script must be run as root (use sudo)."
 
-if [[ "$DOMAIN" == "authen.example.com" ]]; then
-    fail "DOMAIN is still the placeholder. Edit the CONFIGURATION block first."
+if [[ -z "$DOMAIN" || "$DOMAIN" == *example.com ]]; then
+    fail "DOMAIN is empty or still an example value. Edit the CONFIGURATION block first."
 fi
 
 if [[ -z "$ADMIN_EMAIL" ]]; then
