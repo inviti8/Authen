@@ -74,6 +74,62 @@ def payment_extra(cfg: NodeConfig) -> dict[str, Any]:
     }
 
 
+def merchant_extension(cfg: NodeConfig) -> dict[str, Any]:
+    """The `x402-merchant` extension — this node's public identity in the Bazaar.
+
+    Optional, and worth declaring anyway. GoPlausible's own Flask example says it
+    plainly: declare this to CONTROL name/website/logo/categories; omit it and they
+    are read from the endpoint's domain metadata (OpenGraph tags, llms.txt,
+    agent-card.json) instead. deploy/www/index.html carries those tags as the
+    fallback, but a scrape is a guess about someone else's parser and this is not.
+
+    `categories` is how an agent filters the catalog, so it carries what this node
+    actually does plus the competition tag — the one live enriched challenge
+    merchant (AlgoFile) lists `x402-global-challenge` there too.
+
+    The v2 extension shape is `{info, schema}`: the values AND a JSON Schema that
+    validates them. Same contract as the bazaar extension, and the facilitator
+    validates it the same way.
+    """
+    return {
+        "info": {
+            "name": cfg.node_name,
+            "website": cfg.public_url,
+            "logo": f"{cfg.public_url}/logo.png",
+            "categories": [
+                "provenance",
+                "notarization",
+                "c2pa",
+                "developer tools",
+                "algorand",
+                "x402",
+                cfg.tag,
+            ],
+        },
+        "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {"type": "string"},
+                "website": {"type": "string"},
+                "logo": {"type": "string"},
+                "categories": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    }
+
+
+def with_merchant(cfg: NodeConfig, discovery: dict[str, Any]) -> dict[str, Any]:
+    """Attach this node's identity to a discovery extension.
+
+    `declare_discovery_extension()` returns `{"bazaar": {...}}`; the merchant block
+    is a sibling key, not nested inside it. Every server example GoPlausible ships
+    declares both together.
+    """
+    return {**discovery, "x402-merchant": merchant_extension(cfg)}
+
+
 def payment_option(cfg: NodeConfig, amount: str) -> dict[str, Any]:
     """One `axfer`, one settlement, one attestation.
 
@@ -115,7 +171,7 @@ def notarize_route_config(cfg: NodeConfig) -> dict[str, Any]:
             "and time only - not authorship, ownership, or prior existence."
         ),
         "mime_type": "application/json",
-        "extensions": declare_discovery_extension(
+        "extensions": with_merchant(cfg, declare_discovery_extension(
             input="<raw bytes of the content to notarize>",
             input_schema={
                 "type": "string",
@@ -144,7 +200,7 @@ def notarize_route_config(cfg: NodeConfig) -> dict[str, Any]:
                     },
                 },
             ),
-        ),
+        )),
     }
 
 
@@ -181,7 +237,7 @@ def c2pa_route_config(cfg: NodeConfig) -> dict[str, Any]:
             "signature as cryptographically valid but the signer as untrusted."
         ),
         "mime_type": "image/jpeg",
-        "extensions": declare_discovery_extension(
+        "extensions": with_merchant(cfg, declare_discovery_extension(
             input="<raw image bytes; Content-Type must be image/*>",
             input_schema={
                 "type": "string",
@@ -198,7 +254,7 @@ def c2pa_route_config(cfg: NodeConfig) -> dict[str, Any]:
                     "X-Authen-Attestation": "<b64url-sig>.<b64url-payload>",
                 },
             ),
-        ),
+        )),
     }
 
 

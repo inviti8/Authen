@@ -87,6 +87,59 @@ def test_post_routes_declare_a_body_not_query_params(cfg):
         assert type(parsed).__name__ == "BodyDiscoveryExtension", key
 
 
+def test_every_route_declares_the_merchant_identity(cfg):
+    """`x402-merchant` is what CONTROLS name/website/logo/categories in the Bazaar.
+
+    Omit it and the facilitator falls back to scraping the endpoint's domain -
+    OpenGraph tags, llms.txt, agent-card.json. deploy/www/index.html carries those
+    as a backstop, but a scrape is a guess about someone else's parser. Declaring
+    this is the deterministic path, and every server example GoPlausible ships
+    declares it alongside the bazaar extension.
+    """
+    for key, route in routes_for(cfg).items():
+        ext = route["extensions"]
+        assert "x402-merchant" in ext, f"{key} declares no merchant identity"
+        assert "bazaar" in ext, f"{key} lost its bazaar extension"
+
+
+def test_merchant_info_validates_against_its_own_schema(cfg):
+    """v2 extensions carry both the values and a schema for them; they must agree.
+
+    This is the same self-consistency the bazaar extension needs, and the same
+    failure mode - a declaration whose info contradicts its schema is dropped at
+    parse time with nothing surfaced on the wire.
+    """
+    import jsonschema
+
+    for key, route in routes_for(cfg).items():
+        m = route["extensions"]["x402-merchant"]
+        jsonschema.validate(instance=m["info"], schema=m["schema"])
+
+
+def test_merchant_urls_are_absolute_and_match_the_public_origin(cfg):
+    """A relative logo is useless to a facilitator resolving it out of context."""
+    for key, route in routes_for(cfg).items():
+        info = route["extensions"]["x402-merchant"]["info"]
+        for field in ("website", "logo"):
+            assert info[field].startswith("https://"), f"{key}: {field} not absolute"
+            assert info[field].startswith(cfg.public_url), (
+                f"{key}: {field} does not sit under public_url {cfg.public_url}"
+            )
+
+
+def test_merchant_categories_carry_the_competition_tag(cfg):
+    """Categories are how an agent filters the catalog.
+
+    The one live enriched challenge merchant lists the competition tag among its
+    categories, so we do too - it costs nothing and it is how a judge or an agent
+    finds challenge entries.
+    """
+    for key, route in routes_for(cfg).items():
+        cats = route["extensions"]["x402-merchant"]["info"]["categories"]
+        assert cfg.tag in cats, f"{key}: {cfg.tag!r} missing from {cats}"
+        assert len(set(cats)) == len(cats), f"{key}: duplicate categories"
+
+
 def test_query_shape_on_a_post_route_is_rejected(cfg):
     """Prove the failure mode this module exists to prevent.
 
