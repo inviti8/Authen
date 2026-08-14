@@ -216,14 +216,16 @@
   <h2>Paying for it</h2>
   <p>
     Any x402 v2 client on Algorand mainnet works. If your agent does not have a
-    wallet yet, <a href="https://github.com/inviti8/Obol">Obol</a> is an MCP
+    wallet yet, <a href="https://github.com/inviti8/Obolus">Obolus</a> is an MCP
     server that gives it a disposable one — no human provisioning anything:
   </p>
-<pre><code>uvx --from obol-wallet obol-mcp</code></pre>
+<pre><code>uv tool install obolus
+claude mcp add obolus -e OBOLUS_NETWORK=testnet -- obolus-mcp</code></pre>
   <p style="color:var(--muted);font-size:.95rem">
-    On <a href="https://pypi.org/project/obol-wallet/">PyPI</a> as
-    <code>obol-wallet</code>. It answers 402s; it never serves them. Authen is one
-    resource it can pay — nothing about either is coupled to the other.
+    On <a href="https://pypi.org/project/obolus/">PyPI</a> as <code>obolus</code>.
+    It starts on testnet; mainnet is a choice, never a default. It answers 402s
+    and never serves them — Authen is one resource it can pay, and nothing about
+    either is coupled to the other.
   </p>
 
   <footer>
