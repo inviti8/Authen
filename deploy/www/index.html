@@ -5,9 +5,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Authen — verifiable provenance for agents</title>
 <meta name="description" content="Paid notarization and C2PA content credentials over the x402 payment protocol on Algorand mainnet. Verification is free, forever.">
-<!-- Inline so the tab icon costs no request and cannot 404. Browsers still ask
-     for /favicon.ico; nginx serves the mark for that path too. -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect x='8' y='8' width='184' height='184' rx='24' fill='none' stroke='%239a5b2e' stroke-width='14'/%3E%3Cg fill='none' stroke='%231c1a17' stroke-width='18'%3E%3Cpath d='M 38 146 L 68 62 L 98 146'/%3E%3Cpath d='M 50 118 L 86 118'/%3E%3Cpath d='M 118 82 L 118 112 A 24 24 0 0 0 166 112' stroke-linecap='round'/%3E%3Cpath d='M 166 82 L 166 146' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E">
+
+<!-- The GoPlausible Bazaar enriches a merchant record by scraping the payTo
+     domain's site metadata. Confirmed empirically: algofile.io's og:image is
+     byte-identical to the `logo` field on its Bazaar merchant row. So these tags
+     are not decoration — they are how this node's catalog entry gets a name, a
+     description and a logo instead of a bare address. Absolute URLs, because a
+     scraper resolves them out of context. PNG rather than SVG, because most
+     scrapers and social cards reject SVG. -->
+<link rel="canonical" href="https://authen.hvym.link/">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="apple-touch-icon" href="/logo.png">
+
+<meta property="og:type"        content="website">
+<meta property="og:site_name"   content="Authen">
+<meta property="og:url"         content="https://authen.hvym.link/">
+<meta property="og:title"       content="Authen — verifiable provenance for agents">
+<meta property="og:description" content="Notarize any bytes over x402 on Algorand mainnet and get a signed, timestamped attestation checkable offline by anyone. Verification is free, forever.">
+<meta property="og:image"       content="https://authen.hvym.link/og-image.png">
+<meta property="og:image:width"  content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt"   content="Authen — element 79, Au — verifiable provenance for agents">
+
+<meta name="twitter:card"        content="summary_large_image">
+<meta name="twitter:title"       content="Authen — verifiable provenance for agents">
+<meta name="twitter:description" content="Notarize any bytes over x402 on Algorand mainnet. Signed, timestamped, checkable offline. Verification is free, forever.">
+<meta name="twitter:image"       content="https://authen.hvym.link/og-image.png">
 <style>
   :root {
     --bg:        #fbfaf8;
