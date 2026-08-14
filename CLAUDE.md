@@ -74,32 +74,60 @@ Verified on the wire, not assumed:
   challenge had been in the header all along. Decode the header before concluding
   anything about a 402.
 
+- **Bazaar listing achieved 2026-08-14T13:45Z**, after three separate silent
+  defects. `/discovery/merchants/RTY0QlFJT1hLVFQ0QlZNSUZZMlM1V1gz` returns name,
+  website, logo and categories; `/api/v1/notarize` is cataloged; the merchant row
+  reads `bazaar: true`. **The 2026-09-01 gate item is closed.**
+
+  All three defects were invisible to the SDK's own `validate_discovery_extension`,
+  which returned `valid=True` for two of them. Each one silently skips cataloging
+  while challenge, /verify and settlement all behave normally:
+
+  1. `declare_discovery_extension` with no `body_type` builds a *query* shape —
+     `method` enum `["GET","HEAD","DELETE"]`, input under `queryParams` — and
+     `enrich_declaration` then injects `POST` into it. Self-invalid.
+  2. The catalog validator wants the schema's `method` enum to **equal** the
+     declared method, not contain it. The SDK emits the whole verb family. See
+     `pin_method()` in `authen/x402/server.py`.
+  3. The declared `body` must be an **object**. `body_type="text"` produces a
+     string body, which is the honest description of a raw-bytes endpoint and is
+     uncataloguable. Both paid routes now genuinely accept a base64 JSON envelope
+     so the object declaration is true rather than aspirational.
+
+  **The x402 Doctor found 2 and 3 in one run each, after a night of inference got
+  the first one right and the second wrong.** It is reachable from the merchant
+  page and it is the authoritative oracle — trust it over the SDK validator, and
+  over reasoning about cataloged resources, whose `discoveryInfo` does not expose
+  the `schema` where these failures live. Re-run it after any declaration change.
+
 Measured and NOT true yet:
 
-- **The node is not in the Bazaar — cause found 2026-08-14, fix committed, deploy
-  pending.** Our own `extensions.bazaar` declaration was self-invalid on every
-  challenge we ever served: `info.input.method` said `"POST"` while the schema
-  shipped beside it constrained `method` to `["GET","HEAD","DELETE"]`. The facilitator
-  drops it at parse time and nothing surfaces — challenge, /verify and settlement all
-  behave normally. Root cause and the mandatory `body_type` argument are documented at
-  the top of `authen/x402/server.py`; `tests/test_bazaar_declaration.py` pins it.
-  Confirmed by running the SDK's own `validate_discovery_extension` over the live
-  declaration:
+- **`/api/v1/c2pa/sign` is not cataloged**, despite a successful settlement at
+  `2026-08-14T14:13:10Z`. notarize was cataloged 336 ms after its payment, so this
+  is not simple lag. Do not conclude anything yet: the catalog's own total swung
+  1187 → 1636 → 4039 → 4041 → 1265 across 2026-08-14 alongside facilitator
+  `D1_ERROR: D1 DB exceeded its CPU time limit`, so the index was dropping
+  thousands of rows while this was measured. **First action: run the Doctor
+  against `/api/v1/c2pa/sign` specifically** — every Doctor run so far targeted
+  notarize, and the two routes' declarations have never been independently
+  checked. Only pay again if the Doctor is clean and the catalog has stabilised.
 
-      ValidationResult(valid=False,
-                       errors=["input/method: 'POST' is not one of "
-                               "['GET', 'HEAD', 'DELETE']"])
+- **Authen reports settlement failure on settlement success.** Found by the Obolus
+  agent, verified on chain. On a facilitator timeout the SDK's Flask middleware
+  catches the exception and returns `402 {"error": "Settlement failed"}` even
+  though the payment already landed — `middleware/flask.py` settle path. Measured:
+  `UB5F3X3RTQGZZG4VCIJS…`, round 64062555, $0.15 taken, nothing served. Today that
+  costs the buyer a duplicate payment; if anything is ever added that retries
+  settlement it becomes a double-settle. **It must never report `failed` for a
+  timeout — read the chain, or say `unknown`.** The fix is an outer WSGI layer
+  wrapping `payment_middleware`, the same shape sketched for storage promotion.
 
-  Baseline before the fix, for comparison after deploying: all 5,963 resources on
-  `/discovery/resources` contained neither `authen.hvym.link` nor our payTo, and
-  `/discovery/merchants/{b64(payTo[:24])}` and
-  `/discovery/resources/{b64url("POST:<url>")}` both 404'd. **Still a 2026-09-01 gate
-  item until a lookup returns 200.** Re-check with the derived-id lookups; do not
-  infer listing from the challenge containing the extension.
-- **The live node is behind `main`.** As of 2026-08-14 it still serves the removed
-  "send a digest instead for larger objects" text in its input schema, which was
-  fixed in d62b6dd, and still enforces the 4 MiB nginx cap. Any Bazaar recheck is
-  meaningless until it is redeployed.
+- **The facilitator undercounts our volume.** 7 payments totalling $0.65 on chain
+  against `settles: 6, volume: 0.50` on the leaderboard — the settle that timed
+  out facilitator-side never reached it. Immaterial at these amounts, material to
+  anyone ranked on volume, and it is our money going uncounted on a leaderboard we
+  are judged on. Worth raising with GoPlausible; unlike the 50-row cap this one is
+  self-interested and specific.
 
 ## House rules
 
