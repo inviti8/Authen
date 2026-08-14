@@ -220,12 +220,14 @@
     server that gives it a disposable one — no human provisioning anything:
   </p>
 <pre><code>uv tool install obolus
-claude mcp add obolus -e OBOLUS_NETWORK=testnet -- obolus-mcp</code></pre>
+claude mcp add obolus -e OBOLUS_NETWORK=mainnet -- obolus-mcp</code></pre>
   <p style="color:var(--muted);font-size:.95rem">
     On <a href="https://pypi.org/project/obolus/">PyPI</a> as <code>obolus</code>.
-    It starts on testnet; mainnet is a choice, never a default. It answers 402s
-    and never serves them — Authen is one resource it can pay, and nothing about
-    either is coupled to the other.
+    Note the network: <strong>Authen settles on Algorand mainnet only</strong>, and
+    Obolus starts on testnet unless told otherwise — a testnet wallet will not pay
+    these routes. Fund it before the first call; a new wallet holds nothing. It
+    answers 402s and never serves them, so Authen is one resource among any it can
+    pay, and nothing about either is coupled to the other.
   </p>
 
   <footer>
