@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authen — verifiable provenance for agents</title>
+<meta name="description" content="Paid notarization and C2PA content credentials over the x402 payment protocol on Algorand mainnet. Verification is free, forever.">
+<style>
+  :root {
+    --bg:        #fbfaf8;
+    --panel:     #ffffff;
+    --border:    #e4e0d8;
+    --ink:       #1c1a17;
+    --muted:     #6b6458;
+    --accent:    #9a5b2e;
+    --accent-bg: #f6efe7;
+    --code-bg:   #f4f2ee;
+    --ok:        #3f6b45;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#14130f; --panel:#1c1a16; --border:#302c25; --ink:#ece7dd;
+      --muted:#9b9284; --accent:#d99b63; --accent-bg:#241d15; --code-bg:#22201a; --ok:#7fae86;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#14130f; --panel:#1c1a16; --border:#302c25; --ink:#ece7dd;
+    --muted:#9b9284; --accent:#d99b63; --accent-bg:#241d15; --code-bg:#22201a; --ok:#7fae86;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); font-size:17px; line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:52rem; margin:0 auto; padding:3.5rem 1.5rem 5rem; }
+  h1 { font-size:2.1rem; line-height:1.15; margin:0 0 .6rem; letter-spacing:-.02em; }
+  h2 {
+    font-size:.82rem; text-transform:uppercase; letter-spacing:.09em;
+    color:var(--muted); font-weight:600; margin:3rem 0 1rem;
+  }
+  p { margin:0 0 1.1rem; }
+  a { color:var(--accent); }
+  code, pre { font-family:var(--mono); font-size:.86em; }
+  code { background:var(--code-bg); padding:.15em .38em; border-radius:4px; }
+  pre {
+    background:var(--code-bg); border:1px solid var(--border); border-radius:8px;
+    padding:1rem 1.1rem; overflow-x:auto; margin:0 0 1.1rem; line-height:1.55;
+  }
+  pre code { background:none; padding:0; }
+
+  .lede { font-size:1.16rem; color:var(--muted); margin-bottom:2rem; }
+  .badge {
+    display:inline-block; font-family:var(--mono); font-size:.7rem;
+    text-transform:uppercase; letter-spacing:.08em; color:var(--accent);
+    background:var(--accent-bg); border:1px solid var(--border);
+    padding:.28rem .6rem; border-radius:999px; margin-bottom:1.4rem;
+  }
+
+  .claim {
+    border-left:3px solid var(--accent); background:var(--panel);
+    padding:1rem 1.25rem; margin:0 0 1.1rem; border-radius:0 8px 8px 0;
+  }
+  .claim p:last-child { margin-bottom:0; }
+  .claim strong { color:var(--ink); }
+
+  table { width:100%; border-collapse:collapse; margin:0 0 1.1rem; font-size:.94rem; }
+  th, td { text-align:left; padding:.6rem .7rem; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { font-size:.74rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:600; }
+  td:first-child { font-family:var(--mono); font-size:.84rem; white-space:nowrap; }
+  .price { font-family:var(--mono); white-space:nowrap; }
+  .free { color:var(--ok); font-weight:600; }
+  .scroll { overflow-x:auto; }
+
+  footer {
+    margin-top:3.5rem; padding-top:1.5rem; border-top:1px solid var(--border);
+    color:var(--muted); font-size:.88rem;
+  }
+  footer a { color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="badge">x402 &middot; Algorand mainnet &middot; live</div>
+
+  <h1>Authen</h1>
+  <p class="lede">
+    An agent can generate an opinion cheaply. It cannot prove that a specific
+    artifact existed at a specific moment, signed by a key anyone can check.
+    Authen sells that — one HTTP call, one micropayment, no account.
+  </p>
+
+  <p>
+    POST bytes, pay $0.05 over <a href="https://x402.org">x402</a>, and receive a
+    signed timestamped attestation you can verify offline, forever, without us.
+    Anyone else can verify it too, for free. There is no login, no API key and no
+    subscription: the payment is the authorization.
+  </p>
+
+  <h2>What an attestation actually claims</h2>
+  <div class="claim">
+    <p>
+      <strong>“This node observed bytes with this SHA-256 digest at this
+      time.”</strong>
+    </p>
+    <p style="color:var(--muted);font-size:.95rem">
+      Not authorship. Not ownership. Not that the content is true, and not that
+      it did not exist earlier. The wording is deliberately narrow — an
+      attestation that overpromises is worse than none, because the first
+      counterexample discredits every one ever issued.
+    </p>
+  </div>
+
+  <h2>Try it — no payment, no signup</h2>
+  <p>The signing key is public. Fetch it and check this node is who it says it is:</p>
+<pre><code>curl https://authen.hvym.link/api/v1/identity</code></pre>
+  <p>
+    Verification is free and always will be. An attestation nobody can afford to
+    check is worth nothing:
+  </p>
+<pre><code>curl -X POST https://authen.hvym.link/api/v1/verify \
+     -H 'Content-Type: application/json' \
+     -d '{"attestation":"&lt;b64url-sig&gt;.&lt;b64url-payload&gt;"}'</code></pre>
+
+  <h2>Endpoints</h2>
+  <div class="scroll">
+  <table>
+    <thead>
+      <tr><th>Route</th><th>Price</th><th>What it does</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>POST /api/v1/notarize</td>
+        <td class="price">$0.05</td>
+        <td>Hash any bytes, up to 32 MiB, and return a signed Ed25519 attestation.</td>
+      </tr>
+      <tr>
+        <td>POST /api/v1/c2pa/sign</td>
+        <td class="price">$0.15</td>
+        <td>Embed C2PA Content Credentials into an image and return it, manifest signed, pixels untouched.</td>
+      </tr>
+      <tr>
+        <td>POST /api/v1/verify</td>
+        <td class="price free">free</td>
+        <td>Check an attestation is internally consistent and correctly signed.</td>
+      </tr>
+      <tr>
+        <td>POST /api/v1/c2pa/verify</td>
+        <td class="price free">free</td>
+        <td>Read an embedded C2PA manifest and report its validation state.</td>
+      </tr>
+      <tr>
+        <td>GET /api/v1/identity</td>
+        <td class="price free">free</td>
+        <td>This node's signing key, as an Ed25519 hex key and as Algorand and Stellar addresses.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="color:var(--muted);font-size:.95rem">
+    Paid routes answer <code>402</code> with an x402 challenge in the
+    <code>PAYMENT-REQUIRED</code> header. Any x402 v2 client on Algorand mainnet
+    can settle it; the request header is <code>PAYMENT-SIGNATURE</code>. Nothing
+    you send is stored — bytes are hashed and discarded inside the request.
+  </p>
+
+  <h2>Content Credentials</h2>
+  <p>
+    <code>/api/v1/c2pa/sign</code> embeds a signed
+    <a href="https://c2pa.org">C2PA</a> manifest and carries an Authen
+    attestation inside it, so a provenance claim travels with the file rather
+    than beside it. Signing is pixel-lossless: the container is rewritten to hold
+    the manifest, the decoded image is bit-identical.
+  </p>
+  <p style="color:var(--muted);font-size:.95rem">
+    Worth stating plainly: this node's certificate authority is not on the C2PA
+    conformance trust list. Conformant validators will report the signature as
+    cryptographically valid and the signer as untrusted. That is the honest
+    status of every self-hosted C2PA signer today.
+  </p>
+
+  <h2>One key, two chains</h2>
+  <p>
+    The Ed25519 key that signs attestations is simultaneously an Algorand address
+    and a Stellar address. The same attestation can be checked against a trust
+    registry on either chain without re-issuing anything.
+  </p>
+
+  <footer>
+    <p>
+      Authen runs on Algorand mainnet and settles through the
+      <a href="https://facilitator.goplausible.xyz">GoPlausible</a> x402
+      facilitator. Source on
+      <a href="https://github.com/inviti8/Authen">GitHub</a>.
+      Node status: <a href="/health">/health</a>.
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>
