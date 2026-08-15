@@ -102,32 +102,100 @@ Verified on the wire, not assumed:
 
 Measured and NOT true yet:
 
-- **`/api/v1/c2pa/sign` is not cataloged**, despite a successful settlement at
-  `2026-08-14T14:13:10Z`. notarize was cataloged 336 ms after its payment, so this
-  is not simple lag. Do not conclude anything yet: the catalog's own total swung
-  1187 → 1636 → 4039 → 4041 → 1265 across 2026-08-14 alongside facilitator
-  `D1_ERROR: D1 DB exceeded its CPU time limit`, so the index was dropping
-  thousands of rows while this was measured. **First action: run the Doctor
-  against `/api/v1/c2pa/sign` specifically** — every Doctor run so far targeted
-  notarize, and the two routes' declarations have never been independently
-  checked. Only pay again if the Doctor is clean and the catalog has stabilised.
+- **`/api/v1/c2pa/sign` is not cataloged, and the declaration is not why.** Verified
+  2026-08-15T00:00Z by pulling both live 402 challenges and diffing them: c2pa/sign
+  passes `validate_discovery_extension`, parses as `BodyDiscoveryExtension`, and is
+  structurally identical to notarize on every rule the catalog is known to enforce —
+  `method` enum `["POST"]`, object body, object output. Searched the **entire**
+  catalog (1352 of 1352 rows) rather than trusting a computed resource id: exactly
+  one Authen row, notarize. Stop re-checking the declaration.
 
-- **Authen reports settlement failure on settlement success.** Found by the Obolus
-  agent, verified on chain. On a facilitator timeout the SDK's Flask middleware
-  catches the exception and returns `402 {"error": "Settlement failed"}` even
-  though the payment already landed — `middleware/flask.py` settle path. Measured:
-  `UB5F3X3RTQGZZG4VCIJS…`, round 64062555, $0.15 taken, nothing served. Today that
-  costs the buyer a duplicate payment; if anything is ever added that retries
-  settlement it becomes a double-settle. **It must never report `failed` for a
-  timeout — read the chain, or say `unknown`.** The fix is an outer WSGI layer
-  wrapping `payment_middleware`, the same shape sketched for storage promotion.
+  What the facilitator's own transaction feed says (`/data/transactions?q=authen`)
+  kills the tempting theory that this is the settlement bug below in disguise:
+  **c2pa/sign has two successful settles with tx hashes**, `03:34:17Z` and
+  `14:13:09Z`, the second of them *after* the declaration fix that got notarize
+  cataloged at `13:45:07Z`. So it settled cleanly, with a correct declaration, and
+  was never cataloged. Ten hours, so not lag.
 
-- **The facilitator undercounts our volume.** 7 payments totalling $0.65 on chain
-  against `settles: 6, volume: 0.50` on the leaderboard — the settle that timed
-  out facilitator-side never reached it. Immaterial at these amounts, material to
-  anyone ranked on volume, and it is our money going uncounted on a leaderboard we
-  are judged on. Worth raising with GoPlausible; unlike the 50-row cap this one is
-  self-interested and specific.
+  The one hypothesis still standing is the catalog's own instability — its total
+  swung 1187 → 1636 → 4039 → 4041 → 1265 → **1352** alongside `D1_ERROR: D1 DB
+  exceeded its CPU time limit`. It now reads 1352 three times running and the
+  facilitator reports healthy, so the retry condition recorded here is **met**: a
+  further $0.15 is now a real experiment rather than a repeat, because catalog
+  stability is the one variable that changed. Land the settlement guard first (done,
+  see below) so a timeout cannot corrupt the result.
+
+- **Every free facilitator tool operates only on already-cataloged resources**, so
+  none of them can diagnose an uncataloged route. This was learned the expensive
+  way, by recording "run the Doctor against `/api/v1/c2pa/sign`" as a next action
+  that turns out not to be runnable. The Doctor returned `endpoints: [notarize]`
+  only, and Refresh reported `probed: 1`. Both derive their target list from the
+  catalog. **Only a settled payment adds a resource.** Diagnose an uncataloged route
+  by diffing its live challenge against a cataloged one instead.
+
+  Both are plain HTTP and need no browser: `POST /data/merchants/{id}/doctor`
+  (20/day) and `POST /data/merchants/{id}/refresh` (10/day).
+
+- **The `/data/*` and `/discovery/*` namespaces key merchants by different ids.**
+  Ours is `RTY0QlFJT1hLVFQ0QlZNSUZZMlM1V1gz` under `/discovery/*` and
+  `85e5f1fc3935dd01` under `/data/*`; using the wrong one returns a bare
+  `404 {"error":"not found"}` that reads exactly like "no such merchant". Same trap
+  as the caip2-vs-slug asymmetry already noted above. Find the `/data` id by
+  scanning `/data/merchants?limit=200` for the name.
+
+- **The facilitator disagrees with itself about our volume**, which is a sharper
+  report than the undercount noted before because it needs no reference to our chain
+  data. Three sources, three numbers, measured together:
+
+  | Source | Settles | Volume |
+  |---|---|---|
+  | Algorand chain | 7 | $0.65 |
+  | `/data/transactions` | 6 | $0.50 |
+  | `/data/merchants` | 5 | $0.45 |
+
+  The chain-to-facilitator gap is the timed-out settle (`UB5F3X3RTQGZZG4VCIJS…`,
+  14:09:15Z) which never reached them at all. But their **own two endpoints differ by
+  one $0.05 settle**, reproducible against their API alone. Immaterial at these
+  amounts, material to anyone ranked on volume, and it is our money going uncounted
+  on a leaderboard we are judged on. Lead with the self-inconsistency; unlike the
+  50-row cap this one is self-interested and specific.
+
+Fixed since:
+
+- **Authen no longer reports settlement failure on settlement success.** Found by the
+  Obolus agent, verified on chain: `UB5F3X3RTQGZZG4VCIJS…`, round 64062555, $0.15
+  taken, nothing served. Fixed in `authen/x402/settlement.py`, pinned by
+  `tests/test_settlement_guard.py` (36 tests, verified non-vacuous by disabling the
+  guard and confirming 7 fail).
+
+  **Two corrections to what was recorded here before.** First, the sketched fix —
+  "an outer WSGI layer wrapping `payment_middleware`" — does not work: an outer layer
+  sees only the finished 402 and cannot recover what the SDK already discarded. The
+  interception has to be on the *return value of* `process_settlement`, which is the
+  last point where the buffered 2xx body is still alive. Second, the SDK's
+  `process_settlement` already catches every exception itself
+  (`x402_http_server_base.py:433`), so a timeout arrives at the `success=False`
+  branch (`middleware/flask.py:428`), not the `except` at 441.
+
+  The harm was also worse than recorded. Beyond the false verdict, **the SDK discards
+  the attestation it is already holding** — by settlement time the handler has
+  returned 2xx and the signed attestation sits in `body_chunks`. We took the money
+  and threw away the goods in the same code path.
+
+  Reading the chain is exact and needs no search: the payment payload carries the
+  buyer's *signed* transaction, and an Algorand txid hashes the transaction fields,
+  not the signature, so the id can be derived locally. `last_valid` then makes a
+  negative answer decisive — absent past that round, it can never confirm.
+
+      txid on chain               -> settled    serve the goods, real receipt
+      absent and past last_valid  -> rejected    402 is honest, pass it through
+      anything else               -> unknown     serve the goods, say `unknown`
+
+  Serving on `unknown` is deliberate: the node stores nothing, so re-serving costs
+  one signature, against the alternative of charging a buyer and returning an error.
+  Unrecognised facilitator error strings default to indeterminate for the same
+  asymmetry. This needs `indexer_url` per network profile — algod is not a
+  substitute, it forgets confirmed transactions quickly.
 
 ## House rules
 

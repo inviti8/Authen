@@ -78,6 +78,7 @@ slug          = "algorand-mainnet"
 usdc_asa      = "31566704"          # string, not int — x402 `asset` is an ASA id as string
 usdc_decimals = 6
 algod_url     = "https://mainnet-api.algonode.cloud"
+indexer_url   = "https://mainnet-idx.algonode.cloud"
 # Expected facilitator fee payer, pinned for verification only. GoPlausible owns this
 # address and may rotate it. At runtime prefer whatever /supported reports
 # (payment_middleware(sync_facilitator_on_start=True) already fetches it); treat a
@@ -90,6 +91,7 @@ slug          = "algorand-testnet"
 usdc_asa      = "10458941"
 usdc_decimals = 6
 algod_url     = "https://testnet-api.algonode.cloud"
+indexer_url   = "https://testnet-idx.algonode.cloud"
 fee_payer     = "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA"
 
 

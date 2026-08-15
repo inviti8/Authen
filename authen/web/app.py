@@ -35,6 +35,7 @@ from ..keys import assert_identity, load_or_create
 from ..c2pa_sign import SUPPORTED_FORMATS, build_app_ca, read_manifest, sign_image
 from ..notary import build_attestation, sha256_hex, verify_attestation
 from ..x402.server import build_server, routes_for
+from ..x402.settlement import SETTLEMENT_HEADER, SETTLEMENT_TX_HEADER, guard_settlement
 
 # Browser clients cannot read a response header unless it is explicitly exposed.
 # v2 emits PAYMENT-RESPONSE; X-PAYMENT-RESPONSE is the v1 alias older clients want.
@@ -51,7 +52,8 @@ from ..x402.server import build_server, routes_for
 # sets it with `always` for that reason; see the note there.
 _EXPOSE_HEADERS = (
     f"{PAYMENT_REQUIRED_HEADER}, {PAYMENT_RESPONSE_HEADER}, "
-    f"{X_PAYMENT_RESPONSE_HEADER}, X-Authen-Attestation, X-Authen-CA-Fingerprint"
+    f"{X_PAYMENT_RESPONSE_HEADER}, X-Authen-Attestation, X-Authen-CA-Fingerprint, "
+    f"{SETTLEMENT_HEADER}, {SETTLEMENT_TX_HEADER}"
 )
 
 # A notarization request is a hash operation, not a storage service. Cap the body
@@ -331,6 +333,12 @@ def create_app(cfg: NodeConfig | None = None) -> Flask:
         .with_config(app_name=cfg.node_name, testnet=cfg.network.name != "mainnet")
         .build()
     )
-    payment_middleware(app, routes_for(cfg), server, paywall_provider=paywall)
+    middleware = payment_middleware(app, routes_for(cfg), server, paywall_provider=paywall)
+
+    # A facilitator timeout is not a failed payment. Without this the SDK answers
+    # 402 "Settlement failed" for a payment already on chain AND discards the
+    # attestation it is holding, so the buyer pays and gets nothing. Measured once,
+    # on mainnet, for $0.15. See authen/x402/settlement.py.
+    guard_settlement(middleware, cfg)
 
     return app

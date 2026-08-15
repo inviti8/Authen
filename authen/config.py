@@ -127,6 +127,11 @@ class NetworkProfile:
     usdc_decimals: int
     algod_url: str
     fee_payer: str
+    # Read-only, and used for exactly one thing: deciding whether a payment the
+    # facilitator could not confirm actually landed. algod is not a substitute — it
+    # remembers a confirmed transaction only briefly, and this lookup can run well
+    # after the fact. See authen/x402/settlement.py.
+    indexer_url: str
 
 
 @dataclass(frozen=True)
@@ -161,6 +166,23 @@ def _config_path() -> Path:
     return REPO_ROOT / "config" / "node.toml"
 
 
+def _default_indexer(algod_url: str) -> str:
+    """Derive the indexer origin from the algod origin.
+
+    Only Algonode is derived, because that is the provider both shipped profiles
+    use and its two hostnames differ by one token (`-api` -> `-idx`). Anything else
+    must set `indexer_url` explicitly rather than get a guess: a wrong indexer
+    answers "not found" for every transaction, which would read as a rejection.
+    """
+    if "-api.algonode.cloud" in algod_url:
+        return algod_url.replace("-api.algonode.cloud", "-idx.algonode.cloud")
+    raise ValueError(
+        f"Cannot derive an indexer URL from algod_url {algod_url!r}. Set "
+        "`indexer_url` on this network profile in node.toml. It is required: "
+        "settlement verdicts read the chain through it."
+    )
+
+
 def load_config(path: Path | None = None) -> NodeConfig:
     cfg_path = path or _config_path()
     if not cfg_path.exists():
@@ -186,6 +208,7 @@ def load_config(path: Path | None = None) -> NodeConfig:
         usdc_decimals=int(n["usdc_decimals"]),
         algod_url=n["algod_url"],
         fee_payer=n["fee_payer"],
+        indexer_url=(n.get("indexer_url") or _default_indexer(n["algod_url"])).rstrip("/"),
     )
 
     pay_to = (raw.get("treasury", {}).get(net_name) or "").strip()
