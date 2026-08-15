@@ -342,11 +342,103 @@ def c2pa_route_config(cfg: NodeConfig) -> dict[str, Any]:
     }
 
 
+def manifest_route_config(cfg: NodeConfig) -> dict[str, Any]:
+    """Route config for the paid manifest endpoint.
+
+    One flat price for the whole set, and that is a constraint rather than a
+    preference: `accepts` is resolved from static route config at registration with
+    no per-request price hook, and the stock client selector takes `accepts[0]`
+    unconditionally, so a per-item price would silently charge every caller the
+    first tier. Size tiers, if they are ever needed, must be separate routes.
+
+    Charging per item by calling notarize N times was considered and rejected on the
+    merits: the inclusion proof already IS the per-item attestation, so it would pay
+    N times for what one root supplies once.
+    """
+    return {
+        "accepts": payment_option(cfg, cfg.manifest_micro_usdc),
+        "description": (
+            "Notarize a manifest of physical property. POST the Merkle root of your "
+            "item records and receive one signed, timestamped attestation covering "
+            "the whole set, priced per manifest rather than per item. Any single "
+            "item can then be proven to have been in the signed set using an "
+            "inclusion proof, WITHOUT disclosing the other items - so one disputed "
+            "bar can be evidenced without publishing an inventory. This node never "
+            "receives the items, only the root and a count, and stores neither. The "
+            "tree construction is published and verification is free and offline at "
+            "POST /api/v1/manifest/verify. The attestation asserts that this node "
+            "observed that root at that time - not the accuracy of any record, nor "
+            "ownership or existence of the property described."
+        ),
+        "mime_type": "application/json",
+        "extensions": with_merchant(cfg, pin_method(declare_discovery_extension(
+            input={
+                "root": "<64 hex chars: sha256 Merkle root of the item records>",
+                "n": 42,
+                "label": "HK consignment 2026-08",
+            },
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "root": {
+                        "type": "string",
+                        "description": (
+                            "Lowercase hex sha256 Merkle root over your item "
+                            "records. Leaves are sha256(0x00 || canonical_json) "
+                            "and nodes sha256(0x01 || left || right); an unpaired "
+                            "node is promoted, never duplicated. Numbers inside "
+                            "records must be strings, because ES6 number "
+                            "serialisation is not reproducible across languages. "
+                            "The full construction and test vectors are published "
+                            "so you can build and check trees without this node."
+                        ),
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": (
+                            "How many items the root covers. Carried into the "
+                            "attestation for a verifier's benefit, but this node "
+                            "cannot check it and does not claim to - it never sees "
+                            "the items."
+                        ),
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": (
+                            "Optional free text, at most 200 characters, recorded "
+                            "in the attestation as `l`. Visible to anyone the "
+                            "attestation is shown to, so do not put anything "
+                            "sensitive in it."
+                        ),
+                    },
+                },
+                "required": ["root", "n"],
+            },
+            body_type="json",
+            output=OutputConfig(
+                example={
+                    "attestation": "<b64url-sig>.<b64url-payload>",
+                    "payload": {
+                        "h": "<sha256 merkle root hex>",
+                        "i": "merkle-root-observed-at",
+                        "k": "<ed25519 public key hex>",
+                        "n": 42,
+                        "t": 1786000000,
+                        "v": 1,
+                    },
+                },
+            ),
+        ), "POST")),
+    }
+
+
 def routes_for(cfg: NodeConfig) -> dict[str, Any]:
     """Route table keyed the way the middleware expects: "<METHOD> <path>"."""
     notarize = to_x402_pattern(cfg.raw["routes"]["notarize"])
     c2pa = to_x402_pattern(cfg.raw["routes"]["c2pa_sign"])
+    manifest = to_x402_pattern(cfg.raw["routes"]["manifest"])
     return {
         f"POST {notarize}": notarize_route_config(cfg),
         f"POST {c2pa}": c2pa_route_config(cfg),
+        f"POST {manifest}": manifest_route_config(cfg),
     }

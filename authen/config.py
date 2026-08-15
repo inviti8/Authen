@@ -148,6 +148,7 @@ class NodeConfig:
     max_timeout_seconds: int
     price_micro_usdc: str
     c2pa_micro_usdc: str
+    manifest_micro_usdc: str
     identity_pubkey: str
 
     @property
@@ -233,5 +234,8 @@ def load_config(path: Path | None = None) -> NodeConfig:
         max_timeout_seconds=int(x.get("max_timeout_seconds", 120)),
         price_micro_usdc=str(raw["pricing"]["notarize_micro_usdc"]),
         c2pa_micro_usdc=str(raw["pricing"].get("c2pa_micro_usdc", raw["pricing"]["notarize_micro_usdc"])),
+        manifest_micro_usdc=str(
+            raw["pricing"].get("manifest_micro_usdc", raw["pricing"]["notarize_micro_usdc"])
+        ),
         identity_pubkey=(raw.get("identity", {}).get("public_key") or "").strip(),
     )

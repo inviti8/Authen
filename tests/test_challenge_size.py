@@ -47,7 +47,9 @@ def _proxy_buffer_size() -> int:
     return 4096
 
 
-@pytest.mark.parametrize("path", ["/api/v1/notarize", "/api/v1/c2pa/sign"])
+@pytest.mark.parametrize(
+    "path", ["/api/v1/notarize", "/api/v1/c2pa/sign", "/api/v1/manifest"]
+)
 def test_challenge_headers_fit_the_proxy_buffer(client, path):
     """Total response headers on a 402 must fit, with room to spare."""
     r = client.post(path, data=b"probe")

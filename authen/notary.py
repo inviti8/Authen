@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from .keys import NodeIdentity
+from .manifest import MANIFEST_STATEMENT
 
 STATEMENT = "sha256-observed-at"
 ATTESTATION_VERSION = 1
@@ -91,6 +92,55 @@ def build_attestation(
         payload["m"] = media_type
     if cid:
         payload["c"] = cid
+
+    blob = canonical(payload)
+    signature = identity.sign(blob)
+    return Attestation(
+        payload=payload,
+        signature=signature,
+        wire=f"{b64u(signature)}.{b64u(blob)}",
+    )
+
+
+def build_manifest_attestation(
+    identity: NodeIdentity,
+    *,
+    root_hex: str,
+    count: int,
+    label: str | None = None,
+    observed_at: int | None = None,
+) -> Attestation:
+    """Sign a statement about a Merkle root covering a set of items.
+
+    Distinct from `build_attestation` in what it claims, and the `i` field says so:
+    `merkle-root-observed-at`, not `sha256-observed-at`. The node did not observe
+    the items — it never sees them — it observed a root someone computed. A verifier
+    that conflates the two would read a manifest attestation as evidence the node
+    inspected the goods, which it emphatically is not.
+
+    `n` is the caller's declared item count. It is carried because a verifier
+    checking one inclusion proof wants to know how large the set was, but it is
+    **not checkable by this node** and must never be presented as verified.
+    """
+    if len(root_hex) != 64:
+        raise ValueError("root must be 64 hex chars (sha256)")
+    try:
+        bytes.fromhex(root_hex)
+    except ValueError as exc:
+        raise ValueError("root is not hex") from exc
+    if count < 1:
+        raise ValueError("a manifest must declare at least one item")
+
+    payload: dict = {
+        "h": root_hex.lower(),            # the Merkle root
+        "i": MANIFEST_STATEMENT,          # intent — a root, not raw bytes
+        "k": identity.public_hex,
+        "n": int(count),                  # declared item count, unverified by us
+        "t": int(observed_at if observed_at is not None else _now()),
+        "v": ATTESTATION_VERSION,
+    }
+    if label:
+        payload["l"] = label
 
     blob = canonical(payload)
     signature = identity.sign(blob)

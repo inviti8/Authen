@@ -118,6 +118,10 @@ notarize_micro_usdc = "50000"
 # returns the whole re-encoded image. $0.15 is above everything on the rail today,
 # which is deliberate - nothing else on it can do this.
 c2pa_micro_usdc     = "150000"
+# A manifest covers a whole consignment in one signature and one settlement,
+# so it prices above a single C2PA sign. Deliberately flat regardless of item
+# count - the inclusion proof is the per-item attestation and costs nothing.
+manifest_micro_usdc = "250000"
 
 
 [routes]
@@ -126,6 +130,13 @@ c2pa_micro_usdc     = "150000"
 notarize  = "/api/v1/notarize"
 # Paid. Embeds C2PA Content Credentials into an image.
 c2pa_sign = "/api/v1/c2pa/sign"
+# Paid. Signs a Merkle root over a set of item records. Flat price per
+# manifest: `accepts` is static per route, so a per-item price would silently
+# charge everyone the first tier. See manifest_route_config.
+manifest  = "/api/v1/manifest"
+# Free. Checks a manifest attestation and, optionally, one item's membership
+# without disclosing the rest of the set.
+manifest_verify = "/api/v1/manifest/verify"
 # Free. An attestation nobody can check is worth nothing, so checking costs nothing.
 verify    = "/api/v1/verify"
 # Free. The signing key, in every encoding it answers to.

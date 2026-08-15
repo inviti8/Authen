@@ -1,13 +1,24 @@
 """Flask application for Authen — paid notarization over x402.
 
-Three surfaces:
+The surface:
 
-    GET  /health                free   liveness
-    POST /api/v1/notarize       PAID   bytes -> signed attestation
-    POST /api/v1/c2pa/sign      PAID   image -> C2PA Content Credentials embedded
-    POST /api/v1/verify         free   attestation -> valid?  (drives discovery)
-    POST /api/v1/c2pa/verify    free   image -> manifest + validation state
-    GET  /api/v1/identity       free   this node's signing key + addresses
+    GET  /health                  free   liveness
+    POST /api/v1/notarize         PAID   bytes -> signed attestation
+    POST /api/v1/c2pa/sign        PAID   image -> C2PA Content Credentials embedded
+    POST /api/v1/manifest         PAID   merkle root -> signed manifest attestation
+    POST /api/v1/verify           free   attestation -> valid?  (drives discovery)
+    POST /api/v1/c2pa/verify      free   image -> manifest + validation state
+    POST /api/v1/manifest/verify  free   attestation (+ item, proof) -> valid?
+    GET  /api/v1/identity         free   this node's signing key + addresses
+
+Each paid route has a free counterpart that checks its output, and that pairing is
+deliberate: an attestation nobody can afford to check is worth nothing, and the free
+route is also what makes the paid one discoverable.
+
+The manifest routes are the only ones where the node never sees the subject matter
+at all — it signs a root someone else computed. That is a privacy property clients
+in this market require, and it is why `merkle-root-observed-at` is a distinct claim
+from `sha256-observed-at`.
 
 Verification is deliberately free. An attestation nobody can check is worth
 nothing, so the cost of checking has to be zero — and a free verify endpoint is
@@ -33,7 +44,13 @@ from x402.http.paywall import AvmPaywallHandler, PaywallBuilder
 from ..config import NodeConfig, load_config
 from ..keys import assert_identity, load_or_create
 from ..c2pa_sign import SUPPORTED_FORMATS, build_app_ca, read_manifest, sign_image
-from ..notary import build_attestation, sha256_hex, verify_attestation
+from ..manifest import MANIFEST_STATEMENT, MAX_ITEMS, verify_inclusion
+from ..notary import (
+    build_attestation,
+    build_manifest_attestation,
+    sha256_hex,
+    verify_attestation,
+)
 from ..x402.server import build_server, routes_for
 from ..x402.settlement import SETTLEMENT_HEADER, SETTLEMENT_TX_HEADER, guard_settlement
 
@@ -173,7 +190,147 @@ def create_app(cfg: NodeConfig | None = None) -> Flask:
             out["knownKey"] = payload.get("k") == identity.public_hex
         return jsonify(out), (200 if ok else 400)
 
+    @app.post("/api/v1/manifest/verify")
+    def manifest_verify() -> Response:
+        """Free. Check a manifest attestation, and optionally one item's membership.
+
+        Two modes, because they answer different questions:
+
+            {attestation}                 is this a validly signed root?
+            {attestation, item, proof}    ...and was this item in that manifest?
+
+        The second mode is the one that matters in a dispute, and note what it does
+        NOT require: the other items. A holder proves one bar was in a consignment
+        while disclosing nothing about the rest of their property, because a proof
+        carries only sibling digests.
+
+        Free, and deliberately reimplementable — the construction is published in
+        authen/manifest.py. Nobody should have to call this node to check a claim
+        this node made, or the claim is worth nothing the day the node goes away.
+        """
+        body = request.get_json(silent=True) or {}
+        wire = body.get("attestation")
+        if not isinstance(wire, str) or not wire:
+            return jsonify({"valid": False, "error": "no attestation supplied"}), 400
+
+        ok, payload, error = verify_attestation(wire)
+        out: dict = {"valid": ok, "payload": payload}
+        if error:
+            out["error"] = error
+        if not ok:
+            return jsonify(out), 400
+
+        if payload.get("i") != MANIFEST_STATEMENT:
+            # A notary attestation is a valid signature over a different claim.
+            # Accepting it here would let "bytes observed" be read as "manifest
+            # root observed", which is a materially larger claim.
+            return jsonify(
+                {
+                    "valid": False,
+                    "payload": payload,
+                    "error": (
+                        f"not a manifest attestation: intent is {payload.get('i')!r}, "
+                        f"expected {MANIFEST_STATEMENT!r}. Use POST /api/v1/verify."
+                    ),
+                }
+            ), 400
+
+        out["signedBy"] = payload.get("k")
+        out["knownKey"] = payload.get("k") == identity.public_hex
+        out["root"] = payload.get("h")
+        out["declaredItemCount"] = payload.get("n")
+
+        item, proof = body.get("item"), body.get("proof")
+        if item is None and proof is None:
+            out["itemVerified"] = False
+            out["statement"] = (
+                "This node signed the stated Merkle root at the stated time. It did "
+                "not see the items, and the item count is the submitter's claim, not "
+                "a verified fact."
+            )
+            return jsonify(out), 200
+
+        if item is None or not isinstance(proof, dict):
+            return jsonify(
+                {
+                    "valid": False,
+                    "error": "to check membership send both `item` and `proof`",
+                    "expected": {"proof": {"index": 0, "path": [{"side": "L", "hash": "<hex>"}]}},
+                }
+            ), 400
+
+        included, why = verify_inclusion(item, proof.get("path") or [], payload["h"])
+        out["itemVerified"] = included
+        if not included:
+            out["error"] = why
+            return jsonify(out), 400
+
+        out["itemIndex"] = proof.get("index")
+        out["statement"] = (
+            "This item was in the set covered by the signed root at the stated time. "
+            "This node did not see the item and asserts nothing about its accuracy, "
+            "ownership, or the existence of the thing it describes."
+        )
+        return jsonify(out), 200
+
     # ---------------------------------------------------------------- paid
+
+    @app.post("/api/v1/manifest")
+    def manifest():
+        """Sign a Merkle root covering a set of items the caller holds.
+
+        Reaching this handler means the middleware verified payment and will settle
+        before any of this response is released.
+
+        Note what is NOT in the request: the items. The node receives a root and a
+        count, so it cannot learn what was in the manifest — which is a privacy
+        property clients in this market actually require, and is what keeps the
+        route consistent with persisting no third-party bytes.
+
+        One payment covers the whole set. Charging per item was considered and
+        rejected: the inclusion proof already IS the per-item attestation, so N
+        notarize calls would pay N times for a guarantee the root supplies once.
+        """
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(
+                {
+                    "error": "json body must be an object",
+                    "expected": {"root": "<64 hex chars>", "n": 42, "label": "optional"},
+                }
+            ), 400
+
+        root = body.get("root")
+        if not isinstance(root, str) or len(root) != 64:
+            return jsonify({"error": "root must be 64 hex chars (sha256 of the tree root)"}), 400
+        try:
+            bytes.fromhex(root)
+        except ValueError:
+            return jsonify({"error": "root is not valid hex"}), 400
+
+        count = body.get("n")
+        if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= MAX_ITEMS:
+            return jsonify({"error": f"n must be an integer in 1..{MAX_ITEMS}"}), 400
+
+        label = body.get("label")
+        if label is not None and (not isinstance(label, str) or len(label) > 200):
+            return jsonify({"error": "label must be a string of at most 200 chars"}), 400
+
+        att = build_manifest_attestation(
+            identity, root_hex=root, count=count, label=label or None
+        )
+        return jsonify(
+            {
+                "statement": (
+                    "This node observed the stated Merkle root at the stated time. It "
+                    "did not see the items the root covers; the item count is the "
+                    "submitter's claim. It asserts nothing about authorship, "
+                    "ownership, or prior existence."
+                ),
+                "verify": "POST /api/v1/manifest/verify — free, and reimplementable offline",
+                **att.to_dict(),
+            }
+        )
 
     @app.post("/api/v1/notarize")
     def notarize():

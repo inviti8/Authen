@@ -1,0 +1,1005 @@
+{
+  "_comment": "Cross-implementation fixtures for the Pyx manifest Merkle construction. The Kotlin shell and the Python reference must both reproduce every value here exactly. A mismatch is a wire-format break, not a test failure: previously issued manifest attestations would stop verifying.",
+  "_rules": {
+    "leaf": "sha256(0x00 || canonical_json(record))",
+    "node": "sha256(0x01 || left || right)",
+    "odd_node": "promoted unchanged to the next level, never duplicated",
+    "numbers": "fractional values are strings; integers only for exact counts",
+    "ordering": "leaf order preserved; index is part of the proof"
+  },
+  "canonical": [
+    {
+      "name": "key ordering",
+      "record": {
+        "b": "2",
+        "a": "1",
+        "c": {
+          "y": "1",
+          "x": "2"
+        }
+      },
+      "canonical": "{\"a\":\"1\",\"b\":\"2\",\"c\":{\"x\":\"2\",\"y\":\"1\"}}"
+    },
+    {
+      "name": "nested + array",
+      "record": {
+        "a": "1",
+        "b": [
+          "2",
+          "3"
+        ],
+        "c": {
+          "d": null
+        }
+      },
+      "canonical": "{\"a\":\"1\",\"b\":[\"2\",\"3\"],\"c\":{\"d\":null}}"
+    },
+    {
+      "name": "utf8 not escaped",
+      "record": {
+        "maker": "Métaux Précieux",
+        "mint": "瑞士"
+      },
+      "canonical": "{\"maker\":\"Métaux Précieux\",\"mint\":\"瑞士\"}"
+    },
+    {
+      "name": "integer count",
+      "record": {
+        "n": 42,
+        "zero": 0,
+        "neg": -7
+      },
+      "canonical": "{\"n\":42,\"neg\":-7,\"zero\":0}"
+    },
+    {
+      "name": "booleans and null",
+      "record": {
+        "t": true,
+        "f": false,
+        "n": null
+      },
+      "canonical": "{\"f\":false,\"n\":null,\"t\":true}"
+    },
+    {
+      "name": "empty containers",
+      "record": {
+        "o": {},
+        "a": []
+      },
+      "canonical": "{\"a\":[],\"o\":{}}"
+    },
+    {
+      "name": "realistic item",
+      "record": {
+        "v": 1,
+        "id": "item-0007",
+        "object": {
+          "type": "bullion bar",
+          "materials": "silver, 999 fine",
+          "measurements": {
+            "mass_g": "31.103",
+            "declared_oz_t": "1"
+          },
+          "inscriptions": "PAMP SUISSE / 1 OZ / 999.0 / serial C123456",
+          "maker": "PAMP Suisse"
+        },
+        "images": [
+          {
+            "role": "obverse",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "canonical": "{\"id\":\"item-0007\",\"images\":[{\"role\":\"obverse\",\"sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}],\"object\":{\"inscriptions\":\"PAMP SUISSE / 1 OZ / 999.0 / serial C123456\",\"maker\":\"PAMP Suisse\",\"materials\":\"silver, 999 fine\",\"measurements\":{\"declared_oz_t\":\"1\",\"mass_g\":\"31.103\"},\"type\":\"bullion bar\"},\"v\":1}"
+    }
+  ],
+  "roots": [
+    {
+      "name": "1 items",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        }
+      ],
+      "root": "d40a29d36930be2aa430b58bba5fcd063d3e241dc25148290ecc3f09e79d455e"
+    },
+    {
+      "name": "2 items",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        }
+      ],
+      "root": "1b8c354bf7aca06930dd7106f51646315530ea81258b4510c6820167c785f687"
+    },
+    {
+      "name": "3 items",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        }
+      ],
+      "root": "42a4c5ace1c5db3aa1d5c14155605b67409306c9ceb637d1e39bfc5e159e804d"
+    },
+    {
+      "name": "4 items",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        }
+      ],
+      "root": "9684553ff44965df449ecf6f7fab80d24bf08eec77fab9d19b96718f747b04cb"
+    },
+    {
+      "name": "5 items",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        }
+      ],
+      "root": "20fa4b17725c565d321ecc06a7705474e2f7e2804504c6fd16291df709d08813"
+    },
+    {
+      "name": "7 items",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        },
+        {
+          "id": "item-0005",
+          "object": {
+            "type": "bar",
+            "mass_g": "5.000"
+          }
+        },
+        {
+          "id": "item-0006",
+          "object": {
+            "type": "bar",
+            "mass_g": "6.000"
+          }
+        }
+      ],
+      "root": "d6f78324652c63ea952dcfd8e708da1b49027aa687422442dbecc5c5a99e1f99"
+    },
+    {
+      "name": "8 items",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        },
+        {
+          "id": "item-0005",
+          "object": {
+            "type": "bar",
+            "mass_g": "5.000"
+          }
+        },
+        {
+          "id": "item-0006",
+          "object": {
+            "type": "bar",
+            "mass_g": "6.000"
+          }
+        },
+        {
+          "id": "item-0007",
+          "object": {
+            "type": "bar",
+            "mass_g": "7.000"
+          }
+        }
+      ],
+      "root": "63efbc05d6940650f4a8a2faa761b037d8c8463f24175dbc71f5cd453c9cc0dc"
+    },
+    {
+      "name": "9 items",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        },
+        {
+          "id": "item-0005",
+          "object": {
+            "type": "bar",
+            "mass_g": "5.000"
+          }
+        },
+        {
+          "id": "item-0006",
+          "object": {
+            "type": "bar",
+            "mass_g": "6.000"
+          }
+        },
+        {
+          "id": "item-0007",
+          "object": {
+            "type": "bar",
+            "mass_g": "7.000"
+          }
+        },
+        {
+          "id": "item-0008",
+          "object": {
+            "type": "bar",
+            "mass_g": "8.000"
+          }
+        }
+      ],
+      "root": "6e692394361819f4a4eaeadb6575fa4d728cc3f52b970d9f9285874a519eda96"
+    },
+    {
+      "name": "17 items",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        },
+        {
+          "id": "item-0005",
+          "object": {
+            "type": "bar",
+            "mass_g": "5.000"
+          }
+        },
+        {
+          "id": "item-0006",
+          "object": {
+            "type": "bar",
+            "mass_g": "6.000"
+          }
+        },
+        {
+          "id": "item-0007",
+          "object": {
+            "type": "bar",
+            "mass_g": "7.000"
+          }
+        },
+        {
+          "id": "item-0008",
+          "object": {
+            "type": "bar",
+            "mass_g": "8.000"
+          }
+        },
+        {
+          "id": "item-0009",
+          "object": {
+            "type": "bar",
+            "mass_g": "9.000"
+          }
+        },
+        {
+          "id": "item-0010",
+          "object": {
+            "type": "bar",
+            "mass_g": "10.000"
+          }
+        },
+        {
+          "id": "item-0011",
+          "object": {
+            "type": "bar",
+            "mass_g": "11.000"
+          }
+        },
+        {
+          "id": "item-0012",
+          "object": {
+            "type": "bar",
+            "mass_g": "12.000"
+          }
+        },
+        {
+          "id": "item-0013",
+          "object": {
+            "type": "bar",
+            "mass_g": "13.000"
+          }
+        },
+        {
+          "id": "item-0014",
+          "object": {
+            "type": "bar",
+            "mass_g": "14.000"
+          }
+        },
+        {
+          "id": "item-0015",
+          "object": {
+            "type": "bar",
+            "mass_g": "15.000"
+          }
+        },
+        {
+          "id": "item-0016",
+          "object": {
+            "type": "bar",
+            "mass_g": "16.000"
+          }
+        }
+      ],
+      "root": "7e03a754668fb65174e976bdc305a3dbdd93f488c49a1d470b8df2329f6d2db2"
+    }
+  ],
+  "proofs": [
+    {
+      "name": "1 items, index 0",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        }
+      ],
+      "index": 0,
+      "root": "d40a29d36930be2aa430b58bba5fcd063d3e241dc25148290ecc3f09e79d455e",
+      "proof": {
+        "index": 0,
+        "path": []
+      }
+    },
+    {
+      "name": "3 items, index 2",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        }
+      ],
+      "index": 2,
+      "root": "42a4c5ace1c5db3aa1d5c14155605b67409306c9ceb637d1e39bfc5e159e804d",
+      "proof": {
+        "index": 2,
+        "path": [
+          {
+            "side": "L",
+            "hash": "1b8c354bf7aca06930dd7106f51646315530ea81258b4510c6820167c785f687"
+          }
+        ]
+      }
+    },
+    {
+      "name": "5 items, index 4",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        }
+      ],
+      "index": 4,
+      "root": "20fa4b17725c565d321ecc06a7705474e2f7e2804504c6fd16291df709d08813",
+      "proof": {
+        "index": 4,
+        "path": [
+          {
+            "side": "L",
+            "hash": "9684553ff44965df449ecf6f7fab80d24bf08eec77fab9d19b96718f747b04cb"
+          }
+        ]
+      }
+    },
+    {
+      "name": "5 items, index 0",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        }
+      ],
+      "index": 0,
+      "root": "20fa4b17725c565d321ecc06a7705474e2f7e2804504c6fd16291df709d08813",
+      "proof": {
+        "index": 0,
+        "path": [
+          {
+            "side": "R",
+            "hash": "6724eccdc1f5da2ba6bdbab2d52cebf86350dd2685bb80a2fdb130010fc28084"
+          },
+          {
+            "side": "R",
+            "hash": "d4f1c9f954547c102362467e62654aa43c7e1db173f5c49d919f1713cf8da898"
+          },
+          {
+            "side": "R",
+            "hash": "0881685d2f6d76d3c5c6a32591cf22f08bd38311e3bddd248af8a5b251999c5e"
+          }
+        ]
+      }
+    },
+    {
+      "name": "8 items, index 3",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        },
+        {
+          "id": "item-0005",
+          "object": {
+            "type": "bar",
+            "mass_g": "5.000"
+          }
+        },
+        {
+          "id": "item-0006",
+          "object": {
+            "type": "bar",
+            "mass_g": "6.000"
+          }
+        },
+        {
+          "id": "item-0007",
+          "object": {
+            "type": "bar",
+            "mass_g": "7.000"
+          }
+        }
+      ],
+      "index": 3,
+      "root": "63efbc05d6940650f4a8a2faa761b037d8c8463f24175dbc71f5cd453c9cc0dc",
+      "proof": {
+        "index": 3,
+        "path": [
+          {
+            "side": "L",
+            "hash": "540e81d12a888fdc80af557e17c789e4ee38e5d3e5b0a359211f3e92394a54a0"
+          },
+          {
+            "side": "L",
+            "hash": "1b8c354bf7aca06930dd7106f51646315530ea81258b4510c6820167c785f687"
+          },
+          {
+            "side": "R",
+            "hash": "6107bf11574c81e1dc0ea6f576b2a993ac4593a6940273018df9205feeb48632"
+          }
+        ]
+      }
+    },
+    {
+      "name": "9 items, index 8",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        },
+        {
+          "id": "item-0005",
+          "object": {
+            "type": "bar",
+            "mass_g": "5.000"
+          }
+        },
+        {
+          "id": "item-0006",
+          "object": {
+            "type": "bar",
+            "mass_g": "6.000"
+          }
+        },
+        {
+          "id": "item-0007",
+          "object": {
+            "type": "bar",
+            "mass_g": "7.000"
+          }
+        },
+        {
+          "id": "item-0008",
+          "object": {
+            "type": "bar",
+            "mass_g": "8.000"
+          }
+        }
+      ],
+      "index": 8,
+      "root": "6e692394361819f4a4eaeadb6575fa4d728cc3f52b970d9f9285874a519eda96",
+      "proof": {
+        "index": 8,
+        "path": [
+          {
+            "side": "L",
+            "hash": "63efbc05d6940650f4a8a2faa761b037d8c8463f24175dbc71f5cd453c9cc0dc"
+          }
+        ]
+      }
+    },
+    {
+      "name": "17 items, index 16",
+      "records": [
+        {
+          "id": "item-0000",
+          "object": {
+            "type": "bar",
+            "mass_g": "0.000"
+          }
+        },
+        {
+          "id": "item-0001",
+          "object": {
+            "type": "bar",
+            "mass_g": "1.000"
+          }
+        },
+        {
+          "id": "item-0002",
+          "object": {
+            "type": "bar",
+            "mass_g": "2.000"
+          }
+        },
+        {
+          "id": "item-0003",
+          "object": {
+            "type": "bar",
+            "mass_g": "3.000"
+          }
+        },
+        {
+          "id": "item-0004",
+          "object": {
+            "type": "bar",
+            "mass_g": "4.000"
+          }
+        },
+        {
+          "id": "item-0005",
+          "object": {
+            "type": "bar",
+            "mass_g": "5.000"
+          }
+        },
+        {
+          "id": "item-0006",
+          "object": {
+            "type": "bar",
+            "mass_g": "6.000"
+          }
+        },
+        {
+          "id": "item-0007",
+          "object": {
+            "type": "bar",
+            "mass_g": "7.000"
+          }
+        },
+        {
+          "id": "item-0008",
+          "object": {
+            "type": "bar",
+            "mass_g": "8.000"
+          }
+        },
+        {
+          "id": "item-0009",
+          "object": {
+            "type": "bar",
+            "mass_g": "9.000"
+          }
+        },
+        {
+          "id": "item-0010",
+          "object": {
+            "type": "bar",
+            "mass_g": "10.000"
+          }
+        },
+        {
+          "id": "item-0011",
+          "object": {
+            "type": "bar",
+            "mass_g": "11.000"
+          }
+        },
+        {
+          "id": "item-0012",
+          "object": {
+            "type": "bar",
+            "mass_g": "12.000"
+          }
+        },
+        {
+          "id": "item-0013",
+          "object": {
+            "type": "bar",
+            "mass_g": "13.000"
+          }
+        },
+        {
+          "id": "item-0014",
+          "object": {
+            "type": "bar",
+            "mass_g": "14.000"
+          }
+        },
+        {
+          "id": "item-0015",
+          "object": {
+            "type": "bar",
+            "mass_g": "15.000"
+          }
+        },
+        {
+          "id": "item-0016",
+          "object": {
+            "type": "bar",
+            "mass_g": "16.000"
+          }
+        }
+      ],
+      "index": 16,
+      "root": "7e03a754668fb65174e976bdc305a3dbdd93f488c49a1d470b8df2329f6d2db2",
+      "proof": {
+        "index": 16,
+        "path": [
+          {
+            "side": "L",
+            "hash": "6fb0ea725a413c3d5d3fcfa4b7dc74d466eaf4a53a2a5e206373faf85137ab3e"
+          }
+        ]
+      }
+    }
+  ]
+}
